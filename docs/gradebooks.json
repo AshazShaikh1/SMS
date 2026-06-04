@@ -1,0 +1,35 @@
+{
+    "_id": "GRD_TERM_1_2026_10A",
+    "metadata": {
+        "academic_year": "2026",
+        "term": "Term 1",
+        "grade_level": "10",
+        "section": "A",
+        "subject_id": "MATH_101",
+        "instructor_id": "TCH_3021"
+    },
+    "assessments": [
+        {
+            "assessment_id": "ASM_MOCK_01",
+            "title": "Algebra Fundamentals Mock",
+            "type": "mock_test",
+            "max_marks": 50,
+            "weight_percentage": 15,
+            "scores": {
+                "STU_948201": 42,
+                "STU_948202": 38
+            }
+        },
+        {
+            "assessment_id": "ASM_EXAM_FINAL",
+            "title": "Term 1 Comprehensive Exam",
+            "type": "formal_exam",
+            "max_marks": 100,
+            "weight_percentage": 50,
+            "scores": {
+                "STU_948201": 88,
+                "STU_948202": 71
+            }
+        }
+    ]
+}
