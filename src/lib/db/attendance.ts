@@ -87,3 +87,36 @@ export async function saveAttendance(
   saveMockAttendance(list);
   return true;
 }
+
+/**
+ * Fetch all attendance records for a specific class to compute historical averages
+ */
+export async function fetchClassAttendanceHistory(
+  grade: string,
+  section: string
+): Promise<AttendanceRecord[]> {
+  if (isFirebaseConfigured && db) {
+    try {
+      const attendanceRef = collection(db, "attendance");
+      const q = query(
+        attendanceRef,
+        where("grade_level", "==", grade),
+        where("section", "==", section)
+      );
+      const querySnapshot = await getDocs(q);
+      const records: AttendanceRecord[] = [];
+      querySnapshot.forEach((docSnap) => {
+        records.push({ _id: docSnap.id, ...docSnap.data() } as unknown as AttendanceRecord);
+      });
+      return records;
+    } catch (error) {
+      console.error("Error fetching class attendance history from Firestore:", error);
+    }
+  }
+
+  // Fallback to Mock DB
+  const list = getMockAttendance();
+  return list.filter(
+    (record) => record.grade_level === grade && record.section === section
+  );
+}

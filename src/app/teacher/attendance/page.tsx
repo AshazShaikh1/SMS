@@ -10,6 +10,9 @@ import { Badge } from "@/components/ui/badge";
 import { fetchStudents } from "@/lib/db/students";
 import { saveAttendance, fetchAttendance } from "@/lib/db/attendance";
 import { Student } from "@/lib/db/mockDb";
+import { AttendanceProgressRing } from "@/components/dashboard/AttendanceProgressRing";
+import { Toast } from "@/components/ui/toast";
+import { supabase } from "@/lib/supabase/client";
 
 type RollStatus = "present" | "absent" | "late";
 
@@ -40,6 +43,12 @@ function AttendanceRollCallContent() {
   useEffect(() => {
     async function loadClass() {
       setLoading(true);
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        router.push("/login");
+        return;
+      }
+
       const studentList = await fetchStudents(grade, section);
       setStudents(studentList);
 
@@ -59,7 +68,7 @@ function AttendanceRollCallContent() {
       setLoading(false);
     }
     loadClass();
-  }, [grade, section, date]);
+  }, [grade, section, date, router]);
 
   // Toggle status cycle: present -> absent -> late -> present
   const toggleAttendance = (studentId: string) => {
@@ -123,7 +132,7 @@ function AttendanceRollCallContent() {
       {/* Class and Date Selectors */}
       <div className="space-y-2">
         <h3 className="text-xs font-bold text-zinc-700 uppercase tracking-wider">Step 1: Choose Class & Date</h3>
-        <Card className="border border-zinc-200 shadow-xs">
+        <Card className="border border-zinc-200 shadow-xs relative focus-within:z-30 hover:z-20">
         <CardContent className="p-5 grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div className="space-y-1">
             <label className="text-[10px] font-bold text-zinc-600 uppercase tracking-wide">Grade</label>
@@ -162,20 +171,32 @@ function AttendanceRollCallContent() {
         <h3 className="text-xs font-bold text-zinc-700 uppercase tracking-wider">Step 2: Mark Student Status</h3>
         <div className="space-y-4">
         {/* Statistics Bar */}
-        <div className="flex items-center gap-4 text-xs font-semibold text-zinc-550 border-b border-zinc-200 pb-2">
-          <span className="text-zinc-800">Class Roster Summary:</span>
-          <span className="flex items-center gap-1.5 text-emerald-800">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-700" />
-            {stats.present} Present
-          </span>
-          <span className="flex items-center gap-1.5 text-red-750">
-            <span className="w-1.5 h-1.5 rounded-full bg-red-750" />
-            {stats.absent} Absent
-          </span>
-          <span className="flex items-center gap-1.5 text-amber-700">
-            <span className="w-1.5 h-1.5 rounded-full bg-amber-600" />
-            {stats.late} Late
-          </span>
+        <div className="flex items-center justify-between border-b border-zinc-200 pb-2 flex-wrap gap-2">
+          <div className="flex items-center gap-4 text-xs font-semibold text-zinc-550 flex-wrap">
+            <span className="text-zinc-800">Class Roster Summary:</span>
+            <span className="flex items-center gap-1.5 text-emerald-800">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-700" />
+              {stats.present} Present
+            </span>
+            <span className="flex items-center gap-1.5 text-red-750">
+              <span className="w-1.5 h-1.5 rounded-full bg-red-750" />
+              {stats.absent} Absent
+            </span>
+            <span className="flex items-center gap-1.5 text-amber-700">
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-600" />
+              {stats.late} Late
+            </span>
+          </div>
+          {!loading && students.length > 0 && (
+            <div className="flex items-center gap-2 shrink-0">
+              <span className="text-[9px] text-zinc-400 font-bold uppercase tracking-wider">Attendance Rate:</span>
+              <AttendanceProgressRing
+                percentage={students.length > 0 ? Math.round(((stats.present + stats.late) / students.length) * 100) : 100}
+                size={36}
+                strokeWidth={3.5}
+              />
+            </div>
+          )}
         </div>
 
         {/* Attendance Tapping Grid */}
@@ -275,6 +296,14 @@ function AttendanceRollCallContent() {
           </Button>
         </CardContent>
       </Card>
+
+      {saveSuccess && (
+        <Toast
+          message="Attendance list recorded successfully."
+          type="success"
+          onClose={() => setSaveSuccess(false)}
+        />
+      )}
     </div>
   );
 }

@@ -8,9 +8,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
+import { Toast } from "@/components/ui/toast";
 import { fetchStudents } from "@/lib/db/students";
 import { getStudentLedger, updateStudentLedger, calculateOutstandingBalance, FeeModifier } from "@/lib/db/finance";
 import { Student } from "@/lib/db/mockDb";
+import { supabase } from "@/lib/supabase/client";
 
 function FinanceLedgerContent() {
   const router = useRouter();
@@ -35,16 +37,23 @@ function FinanceLedgerContent() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [toast, setToast] = useState<{ message: string; type: "success" | "warning" | "error" | "info" } | null>(null);
+  const [inputError, setInputError] = useState(false);
 
   // Load student list
   useEffect(() => {
     async function loadData() {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        router.push("/login");
+        return;
+      }
       const list = await fetchStudents();
       setStudents(list);
       setLoading(false);
     }
     loadData();
-  }, []);
+  }, [router]);
 
   // Sync with student details when selectedStudentId changes
   useEffect(() => {
@@ -81,13 +90,34 @@ function FinanceLedgerContent() {
 
   const handleAddModifier = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newLabel.trim() || !newValue.trim() || Number(newValue) <= 0) return;
+    const numericValue = Number(newValue);
+
+    if (newType === "percentage" && newApplication === "discount") {
+      if (isNaN(numericValue) || numericValue < 0 || numericValue > 100) {
+        setInputError(true);
+        setToast({
+          message: "Discount percentages must be between 0% and 100%.",
+          type: "warning"
+        });
+        return;
+      }
+    }
+
+    if (newType === "fixed_amount") {
+      if (numericValue < 0) {
+        setNewValue("0");
+        setInputError(true);
+        return;
+      }
+    }
+
+    if (!newLabel.trim() || !newValue.trim() || numericValue < 0) return;
 
     const modifier: FeeModifier = {
       id: `MOD_${Date.now()}`,
       label: newLabel.trim(),
       type: newType,
-      value: Math.round(Number(newValue)),
+      value: Math.round(numericValue),
       application: newApplication,
     };
 
@@ -96,6 +126,7 @@ function FinanceLedgerContent() {
     // Reset modifier input form fields
     setNewLabel("");
     setNewValue("");
+    setInputError(false);
   };
 
   const handleRemoveModifier = (id: string) => {
@@ -129,7 +160,7 @@ function FinanceLedgerContent() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         {/* Student Selector Card */}
         <div className="lg:col-span-1 space-y-6">
-          <Card className="border border-zinc-200 shadow-xs">
+          <Card className="border border-zinc-200 shadow-xs relative focus-within:z-30 hover:z-20">
             <CardHeader className="p-5">
               <CardTitle className="text-sm font-semibold flex items-center gap-2">
                 <User className="w-4.5 h-4.5 text-emerald-850" /> 1. Find a Student
@@ -182,7 +213,7 @@ function FinanceLedgerContent() {
 
         {/* Ledger Modification Panel */}
         <div className="lg:col-span-2 space-y-6">
-          <Card className="border border-zinc-200 h-full flex flex-col justify-between shadow-xs">
+          <Card className="border border-zinc-200 h-full flex flex-col justify-between shadow-xs relative focus-within:z-30 hover:z-20">
             <div>
               <CardHeader className="p-5 border-b border-zinc-100 flex flex-row items-center justify-between">
                 <div>
@@ -216,7 +247,10 @@ function FinanceLedgerContent() {
                         <label className="text-[10px] font-bold text-zinc-650 uppercase tracking-wide">Category</label>
                         <Select
                           value={newApplication}
-                          onChange={(e) => setNewApplication(e.target.value as any)}
+                          onChange={(e) => {
+                            setNewApplication(e.target.value as any);
+                            setInputError(false);
+                          }}
                         >
                           <option value="discount">Discount (-)</option>
                           <option value="charge">Extra Charge (+)</option>
@@ -226,21 +260,36 @@ function FinanceLedgerContent() {
                         <label className="text-[10px] font-bold text-zinc-650 uppercase tracking-wide">Type</label>
                         <Select
                           value={newType}
-                          onChange={(e) => setNewType(e.target.value as any)}
+                          onChange={(e) => {
+                            const val = e.target.value as any;
+                            setNewType(val);
+                            if (val === "fixed_amount" && Number(newValue) < 0) {
+                              setNewValue("0");
+                            }
+                            setInputError(false);
+                          }}
                         >
                           <option value="fixed_amount">Fixed Amount (₹)</option>
                           <option value="percentage">Percentage (%)</option>
                         </Select>
                       </div>
                       <div className="sm:col-span-2 space-y-1.5">
-                        <label className="text-[10px] font-bold text-zinc-650 uppercase tracking-wide">Amount</label>
+                        <label className="text-[10px] font-bold text-zinc-655 uppercase tracking-wide">Amount</label>
                         <Input
                           type="number"
                           value={newValue}
-                          onChange={(e) => setNewValue(e.target.value)}
+                          onChange={(e) => {
+                            let val = e.target.value;
+                            if (newType === "fixed_amount" && Number(val) < 0) {
+                              val = "0";
+                            }
+                            setNewValue(val);
+                            setInputError(false);
+                          }}
                           placeholder="5000"
-                          min="1"
+                          min="0"
                           required
+                          className={inputError ? "border-[#EF4444] focus:border-[#EF4444] focus:ring-[#EF4444]/20" : ""}
                         />
                       </div>
                       <div className="sm:col-span-1 flex items-end">
@@ -361,6 +410,13 @@ function FinanceLedgerContent() {
           </Card>
         </div>
       </div>
+      {toast && (
+        <Toast
+          message={toast.message}
+          type={toast.type}
+          onClose={() => setToast(null)}
+        />
+      )}
     </div>
   );
 }

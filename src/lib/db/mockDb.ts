@@ -27,10 +27,12 @@ export interface Assessment {
   max_marks: number;
   weight_percentage: number;
   scores: Record<string, number>; // student_id -> marks
+  status?: "draft" | "published";
 }
 
 export interface Gradebook {
   _id: string;
+  status?: "draft" | "published";
   metadata: {
     academic_year: string;
     term: string;
@@ -307,4 +309,40 @@ export const GRADE_BASE_FEES: Record<string, number> = {
 
 export function getBaseFee(gradeLevel: string): number {
   return GRADE_BASE_FEES[gradeLevel] || 50000;
+}
+
+export interface ExamNotice {
+  id: string;
+  class_id: string;
+  subject_name: string;
+  exam_title: string;
+  exam_date: string;
+  exam_time: string;
+  room_number: string;
+  created_at: string;
+}
+
+export function getMockExamNotices(): ExamNotice[] {
+  const data = getItem("sms_mock_exam_notices");
+  if (!data) {
+    const initialNotices: ExamNotice[] = [
+      {
+        id: "EXM_NTC_1",
+        class_id: "G10-A",
+        subject_name: "MATH_101",
+        exam_title: "Math midterm exam",
+        exam_date: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // 3 days from now
+        exam_time: "09:00",
+        room_number: "Room 404",
+        created_at: new Date().toISOString(),
+      }
+    ];
+    setItem("sms_mock_exam_notices", JSON.stringify(initialNotices));
+    return initialNotices;
+  }
+  return JSON.parse(data);
+}
+
+export function saveMockExamNotices(notices: ExamNotice[]): void {
+  setItem("sms_mock_exam_notices", JSON.stringify(notices));
 }

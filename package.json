@@ -6,9 +6,11 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "db:migrate": "node scripts/apply-migration.js"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.107.0",
     "clsx": "^2.1.1",
     "firebase": "^12.14.0",
     "lucide-react": "^1.17.0",

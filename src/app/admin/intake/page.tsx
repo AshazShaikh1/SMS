@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Upload, FileSpreadsheet, Play, CheckCircle2, AlertCircle, RefreshCw } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { importStudentsCSV } from "@/lib/db/students";
+import { supabase } from "@/lib/supabase/client";
 
 interface ParsedRow {
   first_name: string;
@@ -21,6 +22,17 @@ interface ParsedRow {
 
 export default function StudentIntake() {
   const router = useRouter();
+
+  useEffect(() => {
+    async function checkSession() {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        router.push("/login");
+      }
+    }
+    checkSession();
+  }, [router]);
+
   const [importMethod, setImportMethod] = useState<"single" | "bulk">("single");
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
@@ -165,9 +177,9 @@ Sneha,Patel,89,9,C`;
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         {/* Selection Card: Single or Bulk */}
         <div className="lg:col-span-1 space-y-6">
-          <Card className="border border-zinc-200 shadow-xs">
+          <Card className="border border-zinc-200 shadow-xs relative focus-within:z-30 hover:z-20">
             <CardHeader className="p-5">
-              <div className="flex gap-2 border-b border-zinc-100 pb-3 mb-2">
+              <div className="flex flex-wrap gap-2 border-b border-zinc-100 pb-3 mb-2">
                 <button
                   type="button"
                   onClick={() => setImportMethod("single")}
@@ -309,7 +321,7 @@ Sneha,Patel,89,9,C`;
 
         {/* Preview / Validation Grid */}
         <div className="lg:col-span-2 space-y-6">
-          <Card className="border border-zinc-200 h-full flex flex-col justify-between">
+          <Card className="border border-zinc-200 h-full flex flex-col justify-between relative focus-within:z-30 hover:z-20">
             <div>
               <CardHeader className="p-5 border-b border-zinc-100 flex flex-row items-center justify-between">
                 <div>

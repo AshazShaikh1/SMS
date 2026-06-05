@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useState, useRef, Suspense } from "react";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, useRouter } from "next/navigation";
 import { Plus, GraduationCap, ChevronRight, CheckCircle2, AlertCircle, RefreshCw, Key, Database } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -9,10 +9,13 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { fetchStudents } from "@/lib/db/students";
-import { fetchGradebook, createAssessment, updateAssessmentScoresBatch, calculateWeightedGrades } from "@/lib/db/gradebooks";
+import { fetchGradebook, createAssessment, updateAssessmentScoresBatch, calculateWeightedGrades, updateGradebookStatus, createExamNotice } from "@/lib/db/gradebooks";
 import { Student, Gradebook, Assessment } from "@/lib/db/mockDb";
+import { Toast } from "@/components/ui/toast";
+import { supabase } from "@/lib/supabase/client";
 
 function GradingMatrixContent() {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const initialGrade = searchParams.get("grade") || "10";
   const initialSection = searchParams.get("section") || "A";
@@ -28,6 +31,9 @@ function GradingMatrixContent() {
   
   // Matrix states
   const [editedScores, setEditedScores] = useState<Record<string, string>>({}); // student_id -> score string
+  const [showToast, setShowToast] = useState(false);
+  const [toastMessage, setToastMessage] = useState("");
+  const [toastType, setToastType] = useState<"success" | "warning" | "error">("success");
 
   // New assessment modal fields
   const [showAddAsm, setShowAddAsm] = useState(false);
@@ -40,10 +46,23 @@ function GradingMatrixContent() {
   const [saving, setSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState("");
 
+  // Accordion and exam scheduling form states
+  const [examNoticeOpen, setExamNoticeOpen] = useState(false);
+  const [examTitle, setExamTitle] = useState("");
+  const [examDate, setExamDate] = useState("");
+  const [examTime, setExamTime] = useState("");
+  const [examRoom, setExamRoom] = useState("");
+  const [noticeSaving, setNoticeSaving] = useState(false);
+
   // Load roster and gradebook details
   useEffect(() => {
     async function loadData() {
       setLoading(true);
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        router.push("/login");
+        return;
+      }
       const studentList = await fetchStudents(grade, section);
       setStudents(studentList);
 
@@ -59,7 +78,7 @@ function GradingMatrixContent() {
       setLoading(false);
     }
     loadData();
-  }, [grade, section, term, subjectId]);
+  }, [grade, section, term, subjectId, router]);
 
   // Sync edited scores when selected assessment changes
   useEffect(() => {
@@ -108,10 +127,21 @@ function GradingMatrixContent() {
     }
   };
 
+  const handleScoreKeyDown = (e: React.KeyboardEvent<HTMLInputElement>, index: number) => {
+    // Completely block execution of alphabetic keys inside numerical grade cells.
+    const isAlphabet = /^[a-zA-Z]$/.test(e.key);
+    if (isAlphabet) {
+      e.preventDefault();
+      return;
+    }
+    handleKeyDown(e, index);
+  };
+
   const handleScoreChange = (studentId: string, val: string) => {
-    const maxVal = activeAssessment ? activeAssessment.max_marks : 100;
-    const num = Number(val);
-    if (val !== "" && (isNaN(num) || num < 0 || num > maxVal)) return; // Input validation constraints
+    // Restrict inputs to valid integers or decimals
+    if (val !== "" && !/^\d*\.?\d*$/.test(val)) {
+      return;
+    }
 
     setEditedScores({
       ...editedScores,
@@ -129,7 +159,8 @@ function GradingMatrixContent() {
       asmTitle.trim(),
       Number(asmMaxMarks),
       asmType,
-      asmType === "mock_test" ? 15 : 50
+      asmType === "mock_test" ? 15 : 50,
+      subjectId
     );
 
     if (success) {
@@ -141,12 +172,40 @@ function GradingMatrixContent() {
       }
       setShowAddAsm(false);
       setAsmTitle("");
+      setToastMessage("New test column created successfully.");
+      setToastType("success");
+      setShowToast(true);
     }
     setSaving(false);
   };
 
   const handleCommitScores = async () => {
     if (!gradebook || !selectedAssessmentId) return;
+
+    const maxVal = activeAssessment ? activeAssessment.max_marks : 100;
+    let hasInvalid = false;
+    const revertedScores = { ...editedScores };
+
+    Object.entries(editedScores).forEach(([studentId, strVal]) => {
+      if (strVal !== "") {
+        const num = Number(strVal);
+        if (isNaN(num) || num < 0 || num > maxVal) {
+          hasInvalid = true;
+          // Revert the cell input value to its previous valid historical state in database
+          const lastSavedScore = activeAssessment?.scores[studentId] !== undefined ? String(activeAssessment.scores[studentId]) : "";
+          revertedScores[studentId] = lastSavedScore;
+        }
+      }
+    });
+
+    if (hasInvalid) {
+      setEditedScores(revertedScores);
+      setToastMessage("Invalid Score: Marks entered must be between 0 and the maximum total marks allowed.");
+      setToastType("error");
+      setShowToast(true);
+      return;
+    }
+
     setSaving(true);
     setSaveMessage("Saving score modifications...");
 
@@ -170,8 +229,70 @@ function GradingMatrixContent() {
       setGradebook(updated);
       setSaveMessage("Auto-saved scores committed to database.");
       setTimeout(() => setSaveMessage(""), 2000);
+      setToastMessage("Student scores saved successfully.");
+      setToastType("success");
+      setShowToast(true);
     }
     setSaving(false);
+  };
+
+  const handlePublishGradebook = async () => {
+    if (!gradebook || !selectedAssessmentId) return;
+    setSaving(true);
+    const success = await updateGradebookStatus(selectedAssessmentId, "published");
+    if (success) {
+      const updatedAssessments = gradebook.assessments.map((a) => {
+        if (a.assessment_id === selectedAssessmentId) {
+          return { ...a, status: "published" as const };
+        }
+        return a;
+      });
+      setGradebook({
+        ...gradebook,
+        status: "published",
+        assessments: updatedAssessments,
+      });
+      setToastMessage("Gradebook results published successfully!");
+      setToastType("success");
+      setShowToast(true);
+    } else {
+      setToastMessage("Failed to publish gradebook results.");
+      setToastType("error");
+      setShowToast(true);
+    }
+    setSaving(false);
+  };
+
+  const handlePostExamNotice = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!examTitle.trim() || !examDate || !examTime || !examRoom.trim()) return;
+
+    setNoticeSaving(true);
+    const classId = `G${grade}-${section}`;
+    const success = await createExamNotice(
+      classId,
+      subjectId,
+      examTitle.trim(),
+      examDate,
+      examTime,
+      examRoom.trim()
+    );
+
+    if (success) {
+      setToastMessage("Exam notice posted successfully!");
+      setToastType("success");
+      setShowToast(true);
+      setExamTitle("");
+      setExamDate("");
+      setExamTime("");
+      setExamRoom("");
+      setExamNoticeOpen(false);
+    } else {
+      setToastMessage("Failed to post exam notice.");
+      setToastType("error");
+      setShowToast(true);
+    }
+    setNoticeSaving(false);
   };
 
   // Perform weighted aggregates analysis (Term Compiler dashboard preview)
@@ -193,7 +314,7 @@ function GradingMatrixContent() {
       {/* Class Selection Controls */}
       <div className="space-y-2">
         <h3 className="text-xs font-bold text-zinc-700 uppercase tracking-wider">Step 1: Select Your Class & Test</h3>
-        <Card className="border border-zinc-200 shadow-xs">
+        <Card className="border border-zinc-200 shadow-xs relative focus-within:z-30 hover:z-20">
         <CardContent className="p-5 grid grid-cols-1 sm:grid-cols-4 gap-4">
           <div className="space-y-1">
             <label className="text-[10px] font-bold text-zinc-650 uppercase tracking-wide">Grade</label>
@@ -312,6 +433,115 @@ function GradingMatrixContent() {
             </div>
           </div>
 
+          {/* Section A: The Publishing Status Banner */}
+          {gradebook && activeAssessment && (
+            <Card className={`border ${
+              activeAssessment.status === "published"
+                ? "border-[#10B981]/30 bg-[#E6F4EA]"
+                : "border-amber-500/30 bg-[#FEF3C7]"
+            } overflow-hidden shadow-xs animate-fade-in`}>
+              <CardContent className="p-4 flex flex-col sm:flex-row items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <div className={`w-2.5 h-2.5 rounded-full ${
+                    activeAssessment.status === "published" ? "bg-[#10B981] animate-pulse" : "bg-amber-500"
+                  }`} />
+                  <div>
+                    <span className="font-bold text-zinc-900 block leading-tight text-xs uppercase tracking-wider">
+                      Status: {activeAssessment.status === "published" ? "Published" : "Draft"}
+                    </span>
+                    <span className="text-[10px] text-zinc-500 mt-0.5 block">
+                      {activeAssessment.status === "published"
+                        ? "Scores are visible to families on the Student Portal & Parent Hub."
+                        : "Scores are hidden from families (Draft status)."}
+                    </span>
+                  </div>
+                </div>
+                {activeAssessment.status !== "published" && (
+                  <Button
+                    size="sm"
+                    onClick={handlePublishGradebook}
+                    disabled={saving}
+                    className="btn-primary"
+                  >
+                    Publish Results & Alert
+                  </Button>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Section B: The Exam Scheduler Accordion */}
+          <Card className="border border-zinc-200 overflow-hidden shadow-xs animate-fade-in">
+            <button
+              type="button"
+              onClick={() => setExamNoticeOpen(!examNoticeOpen)}
+              className="w-full flex justify-between items-center px-5 py-4 font-semibold text-zinc-900 hover:bg-zinc-50/50 transition-colors text-xs uppercase tracking-wider text-left cursor-pointer"
+            >
+              <span>Post Exam Notice / Timetable</span>
+              <span className="text-zinc-400 font-bold text-base transition-transform duration-200">
+                {examNoticeOpen ? "−" : "+"}
+              </span>
+            </button>
+            
+            {examNoticeOpen && (
+              <CardContent className="p-5 pt-0 border-t border-zinc-100 animate-in fade-in duration-200">
+                <form onSubmit={handlePostExamNotice} className="space-y-4 pt-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-semibold text-zinc-700">Exam Title</label>
+                      <Input
+                        value={examTitle}
+                        onChange={(e) => setExamTitle(e.target.value)}
+                        placeholder="e.g. Math Midterm Exam"
+                        required
+                        className="input-premium"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-semibold text-zinc-700">Date</label>
+                      <Input
+                        type="date"
+                        value={examDate}
+                        onChange={(e) => setExamDate(e.target.value)}
+                        required
+                        className="input-premium"
+                      />
+                    </div>
+                  </div>
+                  
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-semibold text-zinc-700">Time</label>
+                      <Input
+                        type="time"
+                        value={examTime}
+                        onChange={(e) => setExamTime(e.target.value)}
+                        required
+                        className="input-premium"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-semibold text-zinc-700">Room Number</label>
+                      <Input
+                        value={examRoom}
+                        onChange={(e) => setExamRoom(e.target.value)}
+                        placeholder="e.g. Room 404"
+                        required
+                        className="input-premium"
+                      />
+                    </div>
+                  </div>
+                  
+                  <div className="flex justify-end pt-2">
+                    <Button type="submit" size="sm" className="btn-primary" disabled={noticeSaving}>
+                      {noticeSaving ? "Posting notice..." : "Post Notice to Class Portal"}
+                    </Button>
+                  </div>
+                </form>
+              </CardContent>
+            )}
+          </Card>
+
           <Card className="border border-zinc-200 overflow-hidden shadow-xs">
             <div className="overflow-x-auto">
               <table className="min-w-full divide-y divide-zinc-200 text-left text-sm">
@@ -367,7 +597,7 @@ function GradingMatrixContent() {
                               id={`grade-input-${idx}`}
                               value={editedScores[student._id] || ""}
                               onChange={(e) => handleScoreChange(student._id, e.target.value)}
-                              onKeyDown={(e) => handleKeyDown(e, idx)}
+                              onKeyDown={(e) => handleScoreKeyDown(e, idx)}
                               onBlur={handleCommitScores} // Auto-saves score on blur for zero friction
                               placeholder="Pending"
                               className="text-center font-bold font-mono focus:border-emerald-600 focus:ring-emerald-600 h-9 bg-zinc-50/10 text-xs"
@@ -443,6 +673,14 @@ function GradingMatrixContent() {
           </Card>
         </div>
       </div>
+
+      {showToast && (
+        <Toast
+          message={toastMessage}
+          type={toastType}
+          onClose={() => setShowToast(false)}
+        />
+      )}
     </div>
   );
 }

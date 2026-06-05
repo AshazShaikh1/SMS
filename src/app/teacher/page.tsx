@@ -1,36 +1,91 @@
 "use client";
 
+import React, { useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { BookOpen, ClipboardCheck, GraduationCap, Calendar, Clock, Star } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { supabase } from "@/lib/supabase/client";
 
 export default function TeacherOverview() {
-  const classesTaught = [
-    {
-      grade: "10",
-      section: "A",
-      subject: "MATH_101",
-      subjectName: "Advanced Algebra",
-      studentsCount: 3,
-      schedule: "Mon/Wed/Fri - 09:00 AM",
-    },
-    {
-      grade: "10",
-      section: "B",
-      subject: "MATH_101",
-      subjectName: "Advanced Algebra",
-      studentsCount: 1,
-      schedule: "Mon/Wed/Fri - 10:30 AM",
-    },
-  ];
+  const router = useRouter();
+  const [teacherName, setTeacherName] = useState("Teacher Workspace");
+  const [classesTaught, setClassesTaught] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function loadTeacherData() {
+      setLoading(true);
+      
+      // 1. Verify session
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        router.push("/login");
+        return;
+      }
+
+      // 2. Fetch teacher profile
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("full_name, school_id")
+        .eq("id", user.id)
+        .single();
+      
+      if (profile) {
+        setTeacherName(profile.full_name);
+      }
+
+      const schoolId = profile?.school_id;
+      if (!schoolId) {
+        setLoading(false);
+        return;
+      }
+
+      // 3. Fetch all classes for the school
+      const { data: classesData } = await supabase
+        .from("classes")
+        .select("id, grade_level, section")
+        .eq("school_id", schoolId);
+
+      // 4. Fetch student counts per class
+      const { data: studentsData } = await supabase
+        .from("students")
+        .select("id, class_id")
+        .eq("school_id", schoolId);
+
+      if (classesData) {
+        const studentCounts: Record<string, number> = {};
+        (studentsData || []).forEach((s: any) => {
+          studentCounts[s.class_id] = (studentCounts[s.class_id] || 0) + 1;
+        });
+
+        const list = classesData.map((c: any) => ({
+          grade: c.grade_level.replace("Grade ", ""),
+          section: c.section,
+          subject: "MATH_101",
+          subjectName: "Mathematics Class",
+          studentsCount: studentCounts[c.id] || 0,
+          schedule: "Mon/Wed/Fri - 09:00 AM",
+        }));
+        setClassesTaught(list);
+      }
+
+      setLoading(false);
+    }
+    loadTeacherData();
+  }, [router]);
+
+  if (loading) {
+    return <div className="text-center text-xs text-zinc-400 py-12">Loading class schedules...</div>;
+  }
 
   return (
     <div className="space-y-8 animate-fade-in">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold tracking-tight text-zinc-900">Hello, Amit Kumar</h1>
+        <h1 className="text-2xl font-bold tracking-tight text-zinc-900">Hello, {teacherName}</h1>
         <p className="text-xs text-zinc-505 mt-0.5 font-normal">View your active classes, take daily attendance, and enter student marks.</p>
       </div>
 

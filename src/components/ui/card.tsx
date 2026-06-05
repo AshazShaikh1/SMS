@@ -5,7 +5,7 @@ export const Card = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDi
   ({ className, ...props }, ref) => (
     <div
       ref={ref}
-      className={cn("bg-white border border-zinc-200/80 rounded-xl shadow-xs overflow-hidden", className)}
+      className={cn("card-premium", className)}
       {...props}
     />
   )
@@ -13,7 +13,7 @@ export const Card = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDi
 Card.displayName = "Card";
 
 export const CardHeader = ({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) => (
-  <div className={cn("p-5 border-b border-zinc-100", className)} {...props} />
+  <div className={cn("p-5 border-b border-zinc-100 rounded-t-[1.25rem]", className)} {...props} />
 );
 CardHeader.displayName = "CardHeader";
 
@@ -33,6 +33,6 @@ export const CardContent = ({ className, ...props }: React.HTMLAttributes<HTMLDi
 CardContent.displayName = "CardContent";
 
 export const CardFooter = ({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) => (
-  <div className={cn("p-5 border-t border-zinc-100 bg-zinc-50/50 flex items-center justify-end gap-2", className)} {...props} />
+  <div className={cn("p-5 border-t border-zinc-100 bg-zinc-50/50 flex items-center justify-end gap-2 rounded-b-[1.25rem]", className)} {...props} />
 );
 CardFooter.displayName = "CardFooter";

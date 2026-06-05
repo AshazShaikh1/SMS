@@ -1,9 +1,8 @@
-import { isFirebaseConfigured, db } from "../firebase";
-import { collection, query, where, getDocs, doc, setDoc, getDoc, updateDoc } from "firebase/firestore";
-import { getMockGradebooks, saveMockGradebooks, Gradebook, Assessment } from "./mockDb";
+import { supabase, getActiveUserSchoolId } from "../supabase/client";
+import { Gradebook, Assessment, ExamNotice } from "./mockDb";
 
 /**
- * Fetch gradebook mapping for a class section, subject and academic term
+ * Fetch gradebook mapping for a class section, subject, and academic term.
  */
 export async function fetchGradebook(
   academicYear: string,
@@ -12,226 +11,320 @@ export async function fetchGradebook(
   section: string,
   subjectId: string
 ): Promise<Gradebook | null> {
-  if (isFirebaseConfigured && db) {
-    try {
-      const gradebookRef = collection(db, "gradebooks");
-      const q = query(
-        gradebookRef,
-        where("metadata.academic_year", "==", academicYear),
-        where("metadata.term", "==", term),
-        where("metadata.grade_level", "==", gradeLevel),
-        where("metadata.section", "==", section),
-        where("metadata.subject_id", "==", subjectId)
-      );
-      const querySnapshot = await getDocs(q);
-      if (!querySnapshot.empty) {
-        const docSnap = querySnapshot.docs[0];
-        return { _id: docSnap.id, ...docSnap.data() } as unknown as Gradebook;
-      }
-      // If Firestore is empty, create a default gradebook container
-      const newId = `GRD_${academicYear}_G${gradeLevel}_S${section}_SUB_${subjectId}`;
-      const defaultGradebook: Gradebook = {
-        _id: newId,
-        metadata: {
-          academic_year: academicYear,
-          term,
-          grade_level: gradeLevel,
+  try {
+    const schoolId = await getActiveUserSchoolId();
+    if (!schoolId) return null;
+
+    // 1. Resolve class ID for this grade level and section mapping
+    const normalizedGrade = gradeLevel.replace("Grade ", "");
+    const { data: classData, error: classError } = await supabase
+      .from("classes")
+      .select("id, instructor_id")
+      .eq("school_id", schoolId)
+      .or(`grade_level.eq.${normalizedGrade},grade_level.eq.Grade ${normalizedGrade}`)
+      .eq("section", section.toUpperCase())
+      .single();
+
+    let classId = "";
+    let instructorId = "TCH_3021";
+
+    if (classError || !classData) {
+      // Create classroom configuration if missing
+      const { data: newClass, error: newClassError } = await supabase
+        .from("classes")
+        .insert({
+          school_id: schoolId,
+          grade_level: `Grade ${normalizedGrade}`,
           section: section.toUpperCase(),
-          subject_id: subjectId,
-          instructor_id: "TCH_3021",
-        },
-        assessments: [],
-      };
-      await setDoc(doc(db, "gradebooks", newId), defaultGradebook);
-      return defaultGradebook;
-    } catch (error) {
-      console.error("Error fetching gradebook from Firestore:", error);
+          base_fee_amount: 60000.0,
+        })
+        .select("id")
+        .single();
+
+      if (newClassError || !newClass) {
+        console.error("Failed to dynamically create classroom structure:", newClassError);
+        return null;
+      }
+      classId = newClass.id;
+    } else {
+      classId = classData.id;
+      instructorId = classData.instructor_id || "TCH_3021";
     }
+
+    // 2. Fetch all assessments associated with this class
+    const { data: gradebooksData, error: gradebooksError } = await supabase
+      .from("gradebooks")
+      .select("*")
+      .eq("school_id", schoolId)
+      .eq("class_id", classId);
+
+    if (gradebooksError) {
+      console.error("Error reading gradebooks from Supabase:", gradebooksError);
+      return null;
+    }
+
+    // 3. Filter and map assessments by subject (serialized in assessment_name: "subjectId:name")
+    const filteredAssessments: Assessment[] = (gradebooksData || [])
+      .filter((row: any) => row.assessment_name.startsWith(`${subjectId}:`))
+      .map((row: any) => {
+        // Strip the subject prefix for display
+        const displayTitle = row.assessment_name.replace(`${subjectId}:`, "");
+        return {
+          assessment_id: row.id,
+          title: displayTitle,
+          type: row.assessment_type as "mock_test" | "formal_exam",
+          max_marks: Number(row.total_marks),
+          weight_percentage: Number(row.weight_percentage),
+          scores: row.scores || {},
+          status: row.status || "draft",
+        } as any;
+      });
+
+    return {
+      _id: classId,
+      status: filteredAssessments[0]?.status || "draft",
+      metadata: {
+        academic_year: academicYear,
+        term,
+        grade_level: gradeLevel,
+        section: section.toUpperCase(),
+        subject_id: subjectId,
+        instructor_id: instructorId,
+      },
+      assessments: filteredAssessments,
+    };
+  } catch (e) {
+    console.error("Failed to execute gradebook fetch from Supabase:", e);
+    return null;
   }
-
-  // Fallback to Mock DB
-  const list = getMockGradebooks();
-  const found = list.find(
-    (g) =>
-      g.metadata.academic_year === academicYear &&
-      g.metadata.term === term &&
-      g.metadata.grade_level === gradeLevel &&
-      g.metadata.section === section &&
-      g.metadata.subject_id === subjectId
-  );
-
-  if (found) return found;
-
-  // Create default mock container if not found
-  const newId = `GRD_${academicYear}_G${gradeLevel}_S${section}_SUB_${subjectId}`;
-  const newGradebook: Gradebook = {
-    _id: newId,
-    metadata: {
-      academic_year: academicYear,
-      term,
-      grade_level: gradeLevel,
-      section: section.toUpperCase(),
-      subject_id: subjectId,
-      instructor_id: "TCH_3021",
-    },
-    assessments: [],
-  };
-  list.push(newGradebook);
-  saveMockGradebooks(list);
-  return newGradebook;
 }
 
 /**
  * Creates a mock test or assessment within a gradebook.
- * 3-click compliance: Admin/Teacher initiates instantly.
  */
 export async function createAssessment(
-  gradebookId: string,
+  gradebookId: string, // class_id
   title: string,
   maxMarks: number,
   type: "mock_test" | "formal_exam",
-  weightPercentage: number
+  weightPercentage: number,
+  subjectId: string = "MATH_101"
 ): Promise<boolean> {
-  const assessmentId = `ASM_${type.toUpperCase()}_${Date.now()}`;
-  const newAssessment: Assessment = {
-    assessment_id: assessmentId,
-    title,
-    type,
-    max_marks: Number(maxMarks),
-    weight_percentage: Number(weightPercentage),
-    scores: {},
-  };
+  try {
+    const schoolId = await getActiveUserSchoolId();
+    if (!schoolId) return false;
 
-  if (isFirebaseConfigured && db) {
-    try {
-      const docRef = doc(db, "gradebooks", gradebookId);
-      const docSnap = await getDoc(docRef);
-      if (docSnap.exists()) {
-        const data = docSnap.data() as Gradebook;
-        const updatedAssessments = [...(data.assessments || []), newAssessment];
-        await updateDoc(docRef, { assessments: updatedAssessments });
-        return true;
-      }
-      return false;
-    } catch (error) {
-      console.error("Error adding assessment in Firestore:", error);
+    // Serialize subjectId in the assessment name to fit standard DB structure plan
+    const serializedName = `${subjectId}:${title}`;
+
+    const { error } = await supabase.from("gradebooks").insert({
+      school_id: schoolId,
+      class_id: gradebookId,
+      assessment_name: serializedName,
+      assessment_type: type,
+      total_marks: Number(maxMarks),
+      weight_percentage: Number(weightPercentage),
+      status: "draft",
+      scores: {},
+    });
+
+    if (error) {
+      console.error("Error creating assessment column in Supabase:", error);
       return false;
     }
-  }
-
-  // Fallback to Mock DB
-  const list = getMockGradebooks();
-  const index = list.findIndex((g) => g._id === gradebookId);
-  if (index !== -1) {
-    list[index].assessments.push(newAssessment);
-    saveMockGradebooks(list);
     return true;
+  } catch (e) {
+    console.error("Failed to create assessment in Supabase:", e);
+    return false;
   }
-  return false;
 }
 
 /**
  * Perform batch score updates for a specific assessment within a gradebook.
- * Saves multiple inline entries in one go.
  */
 export async function updateAssessmentScoresBatch(
-  gradebookId: string,
-  assessmentId: string,
+  gradebookId: string, // class_id (unused here since we target assessment directly by ID)
+  assessmentId: string, // gradebook row ID
   scores: Record<string, number>
 ): Promise<boolean> {
-  if (isFirebaseConfigured && db) {
-    try {
-      const docRef = doc(db, "gradebooks", gradebookId);
-      const docSnap = await getDoc(docRef);
-      if (docSnap.exists()) {
-        const data = docSnap.data() as Gradebook;
-        const updatedAssessments = data.assessments.map((asm) => {
-          if (asm.assessment_id === assessmentId) {
-            return {
-              ...asm,
-              scores: { ...asm.scores, ...scores },
-            };
-          }
-          return asm;
-        });
-        await updateDoc(docRef, { assessments: updatedAssessments });
-        return true;
-      }
-      return false;
-    } catch (error) {
-      console.error("Error batch updating assessment scores in Firestore:", error);
-      return false;
-    }
-  }
+  try {
+    const { error } = await supabase
+      .from("gradebooks")
+      .update({
+        scores: scores,
+      })
+      .eq("id", assessmentId);
 
-  // Fallback to Mock DB
-  const list = getMockGradebooks();
-  const index = list.findIndex((g) => g._id === gradebookId);
-  if (index !== -1) {
-    const asmIndex = list[index].assessments.findIndex((asm) => asm.assessment_id === assessmentId);
-    if (asmIndex !== -1) {
-      list[index].assessments[asmIndex].scores = {
-        ...list[index].assessments[asmIndex].scores,
-        ...scores,
-      };
-      saveMockGradebooks(list);
-      return true;
+    if (error) {
+      console.error("Error committing scores batch to Supabase:", error);
+      return false;
     }
+    return true;
+  } catch (e) {
+    console.error("Failed to commit scores update:", e);
+    return false;
   }
-  return false;
 }
 
 /**
- * Calculates academic summaries for students in a class gradebook.
- * Aggregates mock tests and formal exams according to weight mappings.
+ * Updates the publishing status of an assessment
+ */
+export async function updateGradebookStatus(
+  gradebookIdOrAssessmentId: string,
+  status: "draft" | "published"
+): Promise<boolean> {
+  try {
+    const schoolId = await getActiveUserSchoolId();
+    if (!schoolId) return false;
+
+    // Attempt to update by assessment ID first (UUID format)
+    const { error: singleError } = await supabase
+      .from("gradebooks")
+      .update({ status })
+      .eq("id", gradebookIdOrAssessmentId);
+
+    if (!singleError) return true;
+
+    // Fallback: If it's a class ID, update all gradebook records for that class
+    const { error: batchError } = await supabase
+      .from("gradebooks")
+      .update({ status })
+      .eq("class_id", gradebookIdOrAssessmentId)
+      .eq("school_id", schoolId);
+
+    if (batchError) {
+      console.error("Failed to update status in Supabase:", batchError);
+      return false;
+    }
+
+    return true;
+  } catch (e) {
+    console.error("Failed to update gradebook status:", e);
+    return false;
+  }
+}
+
+/**
+ * Creates a new exam notice record.
+ */
+export async function createExamNotice(
+  classId: string,
+  subjectName: string,
+  examTitle: string,
+  examDate: string,
+  examTime: string,
+  roomNumber: string
+): Promise<boolean> {
+  try {
+    const schoolId = await getActiveUserSchoolId();
+    if (!schoolId) return false;
+
+    const { error } = await supabase.from("exam_notices").insert({
+      school_id: schoolId,
+      class_id: classId,
+      subject_name: subjectName,
+      exam_title: examTitle,
+      exam_date: examDate,
+      exam_time: examTime,
+      room_number: roomNumber,
+    });
+
+    if (error) {
+      console.error("Error inserting exam notice in Supabase:", error);
+      return false;
+    }
+    return true;
+  } catch (e) {
+    console.error("Failed to insert exam notice:", e);
+    return false;
+  }
+}
+
+/**
+ * Fetches all exam notices for a given class ID.
+ */
+export async function fetchExamNotices(classId: string): Promise<ExamNotice[]> {
+  try {
+    const schoolId = await getActiveUserSchoolId();
+    if (!schoolId) return [];
+
+    const { data, error } = await supabase
+      .from("exam_notices")
+      .select("*")
+      .eq("school_id", schoolId)
+      .eq("class_id", classId)
+      .order("exam_date", { ascending: true });
+
+    if (error || !data) {
+      console.error("Error fetching notices from Supabase:", error);
+      return [];
+    }
+
+    return data.map((row: any) => ({
+      id: row.id,
+      class_id: row.class_id,
+      subject_name: row.subject_name,
+      exam_title: row.exam_title,
+      exam_date: row.exam_date,
+      exam_time: row.exam_time,
+      room_number: row.room_number,
+      created_at: row.created_at,
+    }));
+  } catch (e) {
+    console.error("Failed to retrieve exam notices:", e);
+    return [];
+  }
+}
+
+/**
+ * Computes the weighted class performance for each student.
  */
 export function calculateWeightedGrades(
   gradebook: Gradebook,
   studentIds: string[]
-): Record<string, { totalScore: number; maxScore: number; percentage: number; gradeLetter: string }> {
-  const result: Record<string, { totalScore: number; maxScore: number; percentage: number; gradeLetter: string }> = {};
+): Record<string, { maxScore: number; percentage: number; gradeLetter: string }> {
+  const result: Record<string, { maxScore: number; percentage: number; gradeLetter: string }> = {};
 
-  studentIds.forEach((studentId) => {
-    let totalWeight = 0;
-    let weightedEarnedScoreSum = 0;
+  const assessments = gradebook.assessments || [];
+  // Calculate total weight of all assessments in the gradebook
+  const totalWeight = assessments.reduce((acc, asm) => acc + Number(asm.weight_percentage || 0), 0);
 
-    gradebook.assessments.forEach((asm) => {
-      const score = asm.scores[studentId];
-      if (score !== undefined && score !== null) {
-        // Find percentage score
-        const scorePercentage = (score / asm.max_marks) * 100;
-        // Apply weight
-        weightedEarnedScoreSum += (scorePercentage * asm.weight_percentage) / 100;
-        totalWeight += asm.weight_percentage;
+  for (const studentId of studentIds) {
+    let totalWeightWithScores = 0;
+    let totalEarnedWeight = 0;
+
+    for (const asm of assessments) {
+      const scoreVal = asm.scores?.[studentId];
+      if (scoreVal !== undefined && scoreVal !== null) {
+        const score = Number(scoreVal);
+        const maxMarks = Number(asm.max_marks || 100);
+        const weight = Number(asm.weight_percentage || 0);
+
+        totalWeightWithScores += weight;
+        totalEarnedWeight += maxMarks > 0 ? (score / maxMarks) * weight : 0;
       }
-    });
+    }
 
-    // NOTE: Proportional Weight Calculation
-    // If the accumulated weights of assessments do not exactly equal 100% at any given moment,
-    // we divide the weighted earned score sum by the accumulated totalWeight and multiply by 100.
-    // This scales the performance score proportionally to be out of 100% (preventing visual overflows
-    // or division-by-zero errors when totalWeight is not 100).
-    const percentage = totalWeight > 0 ? (weightedEarnedScoreSum / totalWeight) * 100 : 0;
-    const roundedPercent = Math.round(percentage * 10) / 10;
+    const percentage = totalWeightWithScores > 0 
+      ? Math.round((totalEarnedWeight / totalWeightWithScores) * 100) 
+      : 0;
 
-    // Standard grading metric mapping
     let gradeLetter = "N/A";
-    if (totalWeight > 0) {
-      if (roundedPercent >= 90) gradeLetter = "A+";
-      else if (roundedPercent >= 80) gradeLetter = "A";
-      else if (roundedPercent >= 70) gradeLetter = "B";
-      else if (roundedPercent >= 60) gradeLetter = "C";
-      else if (roundedPercent >= 50) gradeLetter = "D";
+    if (totalWeightWithScores > 0) {
+      if (percentage >= 90) gradeLetter = "A";
+      else if (percentage >= 80) gradeLetter = "B";
+      else if (percentage >= 70) gradeLetter = "C";
+      else if (percentage >= 60) gradeLetter = "D";
       else gradeLetter = "F";
     }
 
     result[studentId] = {
-      totalScore: Math.round(weightedEarnedScoreSum * 10) / 10,
-      maxScore: totalWeight, // Sum of weight percentages that had actual scores
-      percentage: roundedPercent,
+      maxScore: totalWeight, // total potential weight configured in gradebook
+      percentage,
       gradeLetter,
     };
-  });
+  }
 
   return result;
 }
+
