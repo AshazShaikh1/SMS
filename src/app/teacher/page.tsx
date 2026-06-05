@@ -78,7 +78,7 @@ export default function TeacherOverview() {
   }, [router]);
 
   if (loading) {
-    return <div className="text-center text-xs text-zinc-400 py-12">Loading class schedules...</div>;
+    return <div className="text-center text-xs text-zinc-400 py-12">Loading your classes...</div>;
   }
 
   return (
@@ -99,8 +99,8 @@ export default function TeacherOverview() {
             </div>
           </CardHeader>
           <CardContent className="px-5 pb-5">
-            <div className="text-2xl font-bold text-zinc-900">MATH_101</div>
-            <p className="text-[10px] text-zinc-450 mt-1">Mathematics Suite (Grade 10 Advanced Algebra)</p>
+            <div className="text-2xl font-bold text-zinc-900">Mathematics</div>
+            <p className="text-[10px] text-zinc-450 mt-1">Grade 10 Advanced Algebra</p>
           </CardContent>
         </Card>
 
@@ -168,7 +168,7 @@ export default function TeacherOverview() {
                   className="flex-1"
                 >
                   <Button size="sm" className="w-full gap-2">
-                    <GraduationCap className="w-4 h-4" /> Open Gradebook
+                    <GraduationCap className="w-4 h-4" /> Enter Grades
                   </Button>
                 </Link>
               </CardContent>

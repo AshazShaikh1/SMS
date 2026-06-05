@@ -504,6 +504,7 @@ export default function OnboardingWizard() {
 
   // --------------------------------------------------------------------------
   // Phase 1 Onboarding Launch (Writes Admin, School, and staging payload)
+  // Uses server-side API route with service_role key to bypass RLS + email confirmation
   // --------------------------------------------------------------------------
   const handleCompleteLaunch = async () => {
     setLoading(true);
@@ -511,102 +512,53 @@ export default function OnboardingWizard() {
     setSuccess("");
 
     try {
-      // 1. Create School Record
-      const { data: schoolData, error: schoolError } = await supabase
-        .from("schools")
-        .insert({
-          school_name: schoolName.trim() || "Antigravity Academy",
-          subscription_tier: "trial",
-          is_active: true,
-        })
-        .select("id")
-        .single();
-
-      if (schoolError || !schoolData) {
-        throw new Error(schoolError?.message || "Failed to initialize school record.");
-      }
-
-      const newSchoolId = schoolData.id;
-
-      // 2. Generate Admin Credentials
-      // schoolslug: e.g. "Lords Academy" -> "lords"
       const schoolslug = schoolName
         .toLowerCase()
         .trim()
         .replace(/[^a-z0-9]/g, "")
         .substring(0, 15) || "school";
-      
-      const adminUsername = `${schoolslug}-admin-1`;
-      const adminEmailAddress = `${adminUsername}@internal-sms.local`;
-      
-      // Generate 8-digit random PIN
-      let pin = "";
-      for (let i = 0; i < 8; i++) {
-        pin += Math.floor(Math.random() * 10).toString();
-      }
-      
-      setGeneratedUsername(adminUsername);
-      setGeneratedPIN(pin);
 
-      // 3. Sign Up Admin User in Supabase Auth
-      const { data: authData, error: authError } = await supabase.auth.signUp({
-        email: adminEmailAddress,
-        password: pin,
-        options: {
-          data: {
-            full_name: adminName.trim() || "System Admin",
-          },
-        },
+      const activeClasses = preparedClasses.length > 0 ? preparedClasses : (() => {
+        const classes: { gradeKey: string; section: string; baseFee: number }[] = [];
+        for (const gf of gradeFees) {
+          const baseFee = Math.max(0, gf.fee + (gf.extraCharge || 0) - Math.round(((gf.discount || 0) / 100) * gf.fee));
+          const sections = matrix[gf.grade] || {};
+          for (const sec of sectionsList) {
+            if (sections[sec]) {
+              classes.push({ gradeKey: gf.grade, section: sec, baseFee });
+            }
+          }
+        }
+        return classes;
+      })();
+
+      const res = await fetch("/api/register-school", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          schoolName: schoolName.trim() || "Antigravity Academy",
+          academicYear: academicYear.trim() || "2026-2027",
+          adminName: adminName.trim() || "System Admin",
+          schoolSlug: schoolslug,
+          gradeFees,
+          sectionsList,
+          preparedClasses: activeClasses,
+          teachers,
+          parsedStudents,
+        }),
       });
 
-      if (authError || !authData.user) {
-        throw new Error(authError?.message || "Failed to create administrator auth account.");
+      const result = await res.json();
+
+      if (!res.ok || !result.success) {
+        throw new Error(result.error || "Registration failed. Please try again.");
       }
 
-      // 4. Create Admin Profile in profiles table
-      const { error: adminProfileError } = await supabase
-        .from("profiles")
-        .insert({
-          id: authData.user.id,
-          school_id: newSchoolId,
-          email: adminUsername, // Save structured username in email field
-          full_name: adminName.trim() || "System Admin",
-          role: "admin",
-        });
-
-      if (adminProfileError) {
-        throw new Error(adminProfileError.message || "Failed to establish admin profile.");
-      }
-
-      // 5. Compress Wizard Payload and insert to onboarding_staging
-      const stagedData = {
-        schoolName: schoolName.trim() || "Antigravity Academy",
-        academicYear: academicYear.trim() || "2026-2027",
-        schoolSlug: schoolslug,
-        gradeFees: gradeFees,
-        sectionsList: sectionsList,
-        preparedClasses: preparedClasses,
-        teachers: teachers,
-        parsedStudents: parsedStudents,
-      };
-
-      const { error: stagingError } = await supabase
-        .from("onboarding_staging")
-        .insert({
-          school_id: newSchoolId,
-          staged_data: stagedData,
-        });
-
-      if (stagingError) {
-        throw new Error(`Failed to cache staging metadata: ${stagingError.message}`);
-      }
-
+      setGeneratedUsername(result.adminUsername);
+      setGeneratedPIN(result.adminPassword);
       setSuccess("Onboarding complete! Your admin profile has been registered.");
-      setToast({
-        message: "School Credentials Configured!",
-        type: "success",
-      });
-      setStep(5); // Show final success screen directly
+      setToast({ message: "School Credentials Configured!", type: "success" });
+      setStep(5);
 
     } catch (err: any) {
       setError(err.message || "An unexpected error occurred during school setup.");
@@ -642,9 +594,9 @@ export default function OnboardingWizard() {
             <div className="w-12 h-12 rounded-2xl bg-[#064e3b] flex items-center justify-center text-white font-bold shadow-md">
               S
             </div>
-            <span className="text-xs font-bold text-zinc-400 uppercase tracking-widest mt-1">Admin Configuration Terminal</span>
+            <span className="text-xs font-bold text-zinc-400 uppercase tracking-widest mt-1">School Setup Wizard</span>
             <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-zinc-900 flex items-center justify-center gap-1.5">
-              <Sparkles className="w-5 h-5 text-emerald-800" /> First-Time School Setup Wizard
+              <Sparkles className="w-5 h-5 text-emerald-800" /> Register Your School
             </h2>
           </div>
         )}
@@ -654,10 +606,10 @@ export default function OnboardingWizard() {
           <div className="flex justify-between items-center px-4 sm:px-12 text-xs font-semibold text-zinc-400 relative max-w-xl mx-auto pb-4">
             <div className="absolute top-[18px] left-8 right-8 border-t border-zinc-200 -translate-y-1/2 z-0" />
             {[
-              { num: 1, label: "Identity & Fees" },
-              { num: 2, label: "Class Matrix" },
-              { num: 3, label: "Faculty Roster" },
-              { num: 4, label: "Student Terminal" }
+              { num: 1, label: "School Info" },
+              { num: 2, label: "Classes" },
+              { num: 3, label: "Teachers" },
+              { num: 4, label: "Students" }
             ].map((sObj) => (
               <div key={sObj.num} className="relative z-10 flex flex-col items-center gap-1">
                 <div
@@ -699,10 +651,10 @@ export default function OnboardingWizard() {
             <div>
               <CardHeader className="p-4 sm:p-6 border-b border-zinc-150">
                 <CardTitle className="text-xs sm:text-sm font-semibold uppercase tracking-wider text-zinc-500">
-                  Step 1: School Identity & Grade pricing Matrix
+                  Step 1: School Details & Annual Fees
                 </CardTitle>
                 <CardDescription className="text-xs">
-                  Enter school parameters and configure base tuition fees.
+                  Enter your school name and set the annual fee for each grade.
                 </CardDescription>
               </CardHeader>
               <CardContent className="p-4 sm:p-6 space-y-6">
@@ -740,10 +692,10 @@ export default function OnboardingWizard() {
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                     <div>
                       <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider block">
-                        Grade Tuition pricing matrix
+                        Annual Fees per Grade
                       </span>
                       <p className="text-[11px] text-zinc-400 mt-0.5">
-                        Define base annual fees per grade. Only numeric values are accepted.
+                        Set the yearly fee for each grade. Enter numbers only.
                       </p>
                     </div>
 
@@ -1234,7 +1186,7 @@ export default function OnboardingWizard() {
                   <ArrowLeft className="w-3.5 h-3.5" /> Back
                 </Button>
                 <Button onClick={handleStep3Next} className="gap-1.5 bg-[#064e3b] hover:bg-[#0f766e] active:bg-[#115e59] w-full sm:w-auto">
-                  Next: Student Terminal <ArrowRight className="w-3.5 h-3.5" />
+                  Next: Add Students <ArrowRight className="w-3.5 h-3.5" />
                 </Button>
               </CardFooter>
             </div>
@@ -1247,7 +1199,7 @@ export default function OnboardingWizard() {
             <div>
               <CardHeader className="p-4 sm:p-6 border-b border-zinc-150">
                 <CardTitle className="text-xs sm:text-sm font-semibold uppercase tracking-wider text-zinc-500">
-                  Step 4: Robust Student Processing Terminal
+                  Step 4: Add Students
                 </CardTitle>
                 <CardDescription className="text-xs">
                   Copy-paste messy Excel rows. You can also skip this stage in development by clicking Complete Launch.
@@ -1274,7 +1226,7 @@ export default function OnboardingWizard() {
                   <div className="lg:col-span-8 space-y-1.5">
                     <div className="flex justify-between items-center">
                       <label className="text-xs font-bold text-zinc-800 flex items-center gap-1">
-                        <Clipboard className="w-4 h-4 text-emerald-800" /> Excel Copy-Paste Input Terminal
+                        <Clipboard className="w-4 h-4 text-emerald-800" /> Paste from Excel or Google Sheets
                       </label>
                     </div>
                     <textarea
@@ -1304,7 +1256,7 @@ export default function OnboardingWizard() {
                   <div className="space-y-3 pt-3 border-t border-zinc-150">
                     <div className="flex justify-between items-center">
                       <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider">
-                        Roster Ingestion Preview ({parsedStudents.length} Students)
+                        Students to Add ({parsedStudents.length} students found)
                       </span>
                     </div>
 

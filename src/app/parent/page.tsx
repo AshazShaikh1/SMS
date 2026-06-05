@@ -395,7 +395,7 @@ export default function ParentDashboard() {
                   {performance ? (
                     <div className="flex items-center justify-between">
                       <div>
-                        <span className="font-bold text-zinc-800 text-sm block">MATH_101 - Mathematics Class</span>
+                        <span className="font-bold text-zinc-800 text-sm block">Mathematics</span>
                         <span className="text-[10px] text-zinc-400">Class Average for Term 1</span>
                       </div>
                       <div className="text-right flex items-center gap-4">

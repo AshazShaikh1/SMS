@@ -336,11 +336,11 @@ function GradingMatrixContent() {
           </div>
 
           <div className="space-y-1">
-            <label className="text-[10px] font-bold text-zinc-655 uppercase tracking-wide">Subject Mapping</label>
+            <label className="text-[10px] font-bold text-zinc-655 uppercase tracking-wide">Subject</label>
             <Select value={subjectId} onChange={(e) => setSubjectId(e.target.value)}>
-              <option value="MATH_101">MATH_101 - Mathematics</option>
-              <option value="SCI_202">SCI_202 - Sciences</option>
-              <option value="ENG_303">ENG_303 - English Grammar</option>
+              <option value="MATH_101">Mathematics</option>
+              <option value="SCI_202">Sciences</option>
+              <option value="ENG_303">English Grammar</option>
             </Select>
           </div>
 
@@ -352,7 +352,7 @@ function GradingMatrixContent() {
               disabled={loading || !gradebook || gradebook.assessments.length === 0}
             >
               {!gradebook || gradebook.assessments.length === 0 ? (
-                <option value="">-- No Columns Configured --</option>
+                <option value="">-- No tests added yet --</option>
               ) : (
                 gradebook.assessments.map((a) => (
                   <option key={a.assessment_id} value={a.assessment_id}>

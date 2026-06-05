@@ -509,7 +509,7 @@ export default function AdminDashboard() {
 
     } catch (err: any) {
       console.error("Materialization error:", err);
-      setMaterializationError(err.message || "An unexpected error occurred during database provisioning.");
+      setMaterializationError(err.message || "An unexpected error occurred. Please try refreshing the page.");
       setIsMaterializing(false);
     }
   };
@@ -597,7 +597,7 @@ export default function AdminDashboard() {
       {/* Materialization Error Alert Banner */}
       {materializationError && (
         <div className="bg-red-50 border border-red-200 text-red-750 text-xs rounded-2xl p-4 flex flex-col gap-2 shadow-xs">
-          <div className="font-bold flex items-center gap-1">⚠️ Database Materialization Interrupted</div>
+          <div className="font-bold flex items-center gap-1">⚠️ Setup Could Not Complete</div>
           <div className="whitespace-pre-wrap leading-relaxed font-mono text-[11px] bg-white/50 p-2.5 rounded-lg border border-red-150">{materializationError}</div>
           <p className="text-[10px] text-zinc-505 font-medium">Please verify your Supabase database migrations and schema RLS boundaries, then reload the dashboard to retry the setup.</p>
         </div>

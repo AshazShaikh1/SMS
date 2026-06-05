@@ -1,7 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://placeholder-url.supabase.co";
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "placeholder-key";
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
@@ -12,13 +12,13 @@ export async function getActiveUserSchoolId(): Promise<string | null> {
   try {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return null;
-    
+
     const { data: profile, error } = await supabase
       .from("profiles")
       .select("school_id")
       .eq("id", user.id)
       .single();
-      
+
     if (error || !profile) return null;
     return profile.school_id;
   } catch (e) {
@@ -28,25 +28,25 @@ export async function getActiveUserSchoolId(): Promise<string | null> {
 }
 
 /**
- * Fetch the active user's full profile info.
+ * Fetch the active user's full profile.
  */
 export async function getActiveUserProfile(): Promise<{
   id: string;
   school_id: string;
   email: string;
   full_name: string;
-  role: "admin" | "teacher" | "student" | "parent";
+  role: "admin" | "teacher" | "student" | "parent" | "developer";
 } | null> {
   try {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return null;
-    
+
     const { data: profile, error } = await supabase
       .from("profiles")
       .select("id, school_id, email, full_name, role")
       .eq("id", user.id)
       .single();
-      
+
     if (error || !profile) return null;
     return profile as any;
   } catch (e) {
@@ -55,14 +55,10 @@ export async function getActiveUserProfile(): Promise<{
   }
 }
 
-// Synchronize auth session cookie with Edge middleware
-if (typeof window !== "undefined") {
-  supabase.auth.onAuthStateChange((event, session) => {
-    if (session) {
-      const maxAge = 100 * 365 * 24 * 60 * 60; // 100 years
-      document.cookie = `sb-auth-token=${encodeURIComponent(JSON.stringify(session))}; path=/; max-age=${maxAge}; SameSite=Lax;`;
-    } else {
-      document.cookie = `sb-auth-token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax;`;
-    }
-  });
+/**
+ * Sign out — clears both the Supabase session and the auth cookie.
+ */
+export async function signOut(): Promise<void> {
+  await supabase.auth.signOut();
+  document.cookie = "sb-auth-token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax;";
 }

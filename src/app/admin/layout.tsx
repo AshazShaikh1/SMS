@@ -1,14 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
-import { 
-  UserPlus, 
-  Wallet, 
-  LogOut, 
-  Home
-} from "lucide-react";
+import { usePathname } from "next/navigation";
+import { UserPlus, Wallet, LogOut, Home } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { signOut } from "@/lib/supabase/client";
 
 export default function AdminLayout({
   children,
@@ -16,7 +12,11 @@ export default function AdminLayout({
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
-  const router = useRouter();
+
+  const handleLogout = async () => {
+    await signOut();
+    window.location.href = "/login";
+  };
 
   // If on the setup onboarding wizard route, do not show sidebars or navigation bars
   if (pathname.startsWith("/admin/setup")) {
@@ -70,11 +70,11 @@ export default function AdminLayout({
           {/* Logout Section */}
           <div className="p-4 border-t border-[#042f2e]">
             <button
-              onClick={() => router.push("/")}
+              onClick={handleLogout}
               className="flex items-center gap-3 w-full px-3 py-2 text-sm font-medium text-[#d1fae5] hover:text-[#FFFFFF] hover:bg-[#042f2e] rounded-lg transition-colors cursor-pointer"
             >
               <LogOut className="w-4 h-4 text-[#d1fae5]" />
-              Switch Persona
+              Log Out
             </button>
           </div>
         </div>
@@ -112,11 +112,11 @@ export default function AdminLayout({
           );
         })}
         <button
-          onClick={() => router.push("/")}
+          onClick={handleLogout}
           className="flex flex-col items-center justify-center flex-1 h-full py-1 text-center text-[#a1a1aa] hover:text-[#52525b] cursor-pointer"
         >
           <LogOut className="w-5 h-5" />
-          <span className="text-[10px] font-semibold tracking-wider mt-1">Exit</span>
+          <span className="text-[10px] font-semibold tracking-wider mt-1">Log Out</span>
         </button>
       </nav>
 

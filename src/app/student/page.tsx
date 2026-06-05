@@ -155,7 +155,7 @@ export default function StudentDashboard() {
   }, [router]);
 
   if (loading) {
-    return <div className="text-center text-xs text-zinc-400 py-12">Retrieving student records...</div>;
+    return <div className="text-center text-xs text-zinc-400 py-12">Loading your information...</div>;
   }
 
   if (!student || !ledger) {
@@ -195,7 +195,7 @@ export default function StudentDashboard() {
         <h1 className="text-xl font-bold tracking-tight text-zinc-900">
           Hello, {student.personal_details.first_name}!
         </h1>
-        <p className="text-xs text-zinc-405 font-normal">Active enrollment: Grade {student.academic_mapping.current_grade}-{student.academic_mapping.section}</p>
+        <p className="text-xs text-zinc-405 font-normal">Grade {student.academic_mapping.current_grade}, Section {student.academic_mapping.section}</p>
       </div>
 
       {/* Today's Schedule & Exam Alerts */}
