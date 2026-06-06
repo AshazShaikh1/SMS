@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { fetchStudents } from "@/lib/db/students";
+import { recordPayment } from "@/lib/db/finance";
 import { Student } from "@/lib/db/mockDb";
 import { supabase } from "@/lib/supabase/client";
 import { createClient } from "@supabase/supabase-js";
@@ -26,6 +27,65 @@ export default function AdminDashboard() {
   const [materializationError, setMaterializationError] = useState<string | null>(null);
   const [showLedgerBanner, setShowLedgerBanner] = useState(false);
   const [rosterCredentials, setRosterCredentials] = useState<any[]>([]);
+
+  // Record Payment States
+  const [selectedPaymentStudent, setSelectedPaymentStudent] = useState<Student | null>(null);
+  const [paymentAmount, setPaymentAmount] = useState("");
+  const [paymentMode, setPaymentMode] = useState<"cash" | "upi" | "bank_transfer">("cash");
+  const [referenceNumber, setReferenceNumber] = useState("");
+  const [paymentError, setPaymentError] = useState<string | null>(null);
+  const [paymentSubmitting, setPaymentSubmitting] = useState(false);
+
+  const handleRecordPaymentSubmit = async () => {
+    if (!selectedPaymentStudent) return;
+    
+    const amtStr = paymentAmount.trim();
+    if (!amtStr) {
+      setPaymentError("Please enter a payment amount.");
+      return;
+    }
+
+    if (!/^\d+(\.\d+)?$/.test(amtStr)) {
+      setPaymentError("Amount paid must contain only numbers.");
+      return;
+    }
+
+    const amt = Number(amtStr);
+    if (amt <= 0) {
+      setPaymentError("Payment amount must be greater than zero.");
+      return;
+    }
+
+    const outstandingBalance = selectedPaymentStudent.financial_ledger?.current_outstanding_balance || 0;
+    if (amt > outstandingBalance) {
+      setPaymentError(`Payment amount cannot exceed student's actual outstanding balance (₹${outstandingBalance.toLocaleString("en-IN")}).`);
+      return;
+    }
+
+    setPaymentSubmitting(true);
+    setPaymentError(null);
+
+    const res = await recordPayment({
+      schoolId: schoolId || "",
+      studentId: selectedPaymentStudent.personal_details.student_profile_id || "",
+      amountPaid: amt,
+      paymentMode,
+      referenceNumber: referenceNumber.trim() || undefined,
+    });
+
+    if (res.success) {
+      const list = await fetchStudents();
+      setStudents(list);
+      setSelectedPaymentStudent(null);
+      setPaymentAmount("");
+      setPaymentMode("cash");
+      setReferenceNumber("");
+      setPaymentError(null);
+    } else {
+      setPaymentError(res.error || "Failed to record payment transaction.");
+    }
+    setPaymentSubmitting(false);
+  };
 
   useEffect(() => {
     async function loadData() {
@@ -776,12 +836,20 @@ export default function AdminDashboard() {
                           ₹{student.financial_ledger?.current_outstanding_balance.toLocaleString("en-IN")}
                         </td>
                         <td className="px-6 py-4 text-right text-xs">
-                          <Link
-                            href={`/admin/finance?studentId=${student._id}`}
-                            className="inline-flex items-center gap-1.5 text-emerald-800 hover:text-emerald-950 font-bold transition-colors"
-                          >
-                            <FileEdit className="w-3.5 h-3.5" /> Edit Fees
-                          </Link>
+                          <div className="flex items-center justify-end gap-3.5">
+                            <button
+                              onClick={() => setSelectedPaymentStudent(student)}
+                              className="inline-flex items-center gap-1.5 text-orange-700 hover:text-orange-900 font-bold transition-colors cursor-pointer"
+                            >
+                              Record Payment
+                            </button>
+                            <Link
+                              href={`/admin/finance?studentId=${student._id}`}
+                              className="inline-flex items-center gap-1.5 text-emerald-800 hover:text-emerald-950 font-bold transition-colors"
+                            >
+                              <FileEdit className="w-3.5 h-3.5" /> Edit Fees
+                            </Link>
+                          </div>
                         </td>
                       </tr>
                     ))
@@ -826,11 +894,21 @@ export default function AdminDashboard() {
                           ₹{student.financial_ledger?.current_outstanding_balance.toLocaleString("en-IN")}
                         </span>
                       </div>
-                      <Link href={`/admin/finance?studentId=${student._id}`}>
-                        <Button size="sm" variant="outline" className="gap-1.5 px-3 py-1.5 h-8 text-xs border-zinc-250 hover:bg-emerald-50/20 hover:border-emerald-600 hover:text-emerald-950 font-semibold">
-                          <FileEdit className="w-3.5 h-3.5" /> Edit Fees
+                      <div className="flex items-center gap-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => setSelectedPaymentStudent(student)}
+                          className="gap-1.5 px-3 py-1.5 h-8 text-xs border-zinc-250 hover:bg-orange-50/20 hover:border-orange-600 hover:text-orange-950 font-semibold cursor-pointer"
+                        >
+                          Record Payment
                         </Button>
-                      </Link>
+                        <Link href={`/admin/finance?studentId=${student._id}`}>
+                          <Button size="sm" variant="outline" className="gap-1.5 px-3 py-1.5 h-8 text-xs border-zinc-250 hover:bg-emerald-50/20 hover:border-emerald-600 hover:text-emerald-950 font-semibold">
+                            <FileEdit className="w-3.5 h-3.5" /> Edit Fees
+                          </Button>
+                        </Link>
+                      </div>
                     </div>
                   </div>
                 ))
@@ -876,6 +954,146 @@ export default function AdminDashboard() {
           </div>
         </div>
       </div>
+
+      {/* Sliding Payment Panel */}
+      {selectedPaymentStudent && (
+        <div className="fixed inset-0 z-50 flex justify-end">
+          {/* Backdrop */}
+          <div
+            className="absolute inset-0 bg-black/40 backdrop-blur-xs transition-opacity"
+            onClick={() => {
+              setSelectedPaymentStudent(null);
+              setPaymentAmount("");
+              setPaymentMode("cash");
+              setReferenceNumber("");
+              setPaymentError(null);
+            }}
+          />
+
+          {/* Panel */}
+          <div className="relative w-full max-w-md bg-[#FAF9F6] h-full shadow-2xl flex flex-col border-l border-zinc-200 z-10 transition-all duration-300">
+            {/* Header with light peach accent */}
+            <div className="bg-gradient-to-r from-[#fff7f2] to-[#fffcfb] p-6 border-b border-[#fed7aa] flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-bold text-zinc-900">Record Fee Payment</h3>
+                <p className="text-[10px] text-zinc-400 mt-0.5">
+                  Register payment for {selectedPaymentStudent.personal_details.first_name} {selectedPaymentStudent.personal_details.last_name}
+                </p>
+              </div>
+              <button
+                onClick={() => {
+                  setSelectedPaymentStudent(null);
+                  setPaymentAmount("");
+                  setPaymentMode("cash");
+                  setReferenceNumber("");
+                  setPaymentError(null);
+                }}
+                className="text-zinc-400 hover:text-zinc-600 font-bold text-xs p-1.5 rounded-lg hover:bg-zinc-150 transition-colors cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Content Body */}
+            <div className="p-6 flex-1 overflow-y-auto space-y-6">
+              {/* Live Outstanding Balance Card */}
+              <div className="bg-[#fff8f5] border border-[#ffedd5] p-5 rounded-2xl space-y-1 shadow-xs">
+                <span className="text-[9px] font-bold text-[#ea580c] uppercase tracking-wider block">
+                  Current Outstanding Balance
+                </span>
+                <div className="text-2xl font-extrabold text-orange-950 font-mono">
+                  ₹{selectedPaymentStudent.financial_ledger?.current_outstanding_balance.toLocaleString("en-IN")}
+                </div>
+              </div>
+
+              {/* Input Fields */}
+              <div className="space-y-4">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 block">Amount Paid (₹)</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. 15000"
+                    value={paymentAmount}
+                    onChange={(e) => {
+                      setPaymentAmount(e.target.value);
+                      setPaymentError(null);
+                    }}
+                    className="w-full input-premium bg-white border border-zinc-200 focus:border-[#ea580c] focus:ring-[#ea580c]/15 text-sm rounded-xl py-2 px-3 outline-none"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 block">Payment Mode</label>
+                  <div className="grid grid-cols-3 gap-1.5 p-1 bg-zinc-100/80 rounded-xl border border-zinc-200">
+                    {(["cash", "upi", "bank_transfer"] as const).map((mode) => (
+                      <button
+                        key={mode}
+                        type="button"
+                        onClick={() => setPaymentMode(mode)}
+                        className={`py-1.5 text-[10px] font-bold rounded-lg capitalize transition-all cursor-pointer ${
+                          paymentMode === mode
+                            ? "bg-[#fff2eb] text-[#ea580c] border border-[#fed7aa] shadow-xs"
+                            : "bg-transparent text-zinc-400 hover:text-zinc-700 border border-transparent"
+                        }`}
+                      >
+                        {mode.replace("_", " ")}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 block">Reference Number (Optional)</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. TXN987293810, Cash receipt #5"
+                    value={referenceNumber}
+                    onChange={(e) => setReferenceNumber(e.target.value)}
+                    className="w-full input-premium bg-white border border-zinc-200 focus:border-[#ea580c] focus:ring-[#ea580c]/15 text-sm rounded-xl py-2 px-3 outline-none"
+                  />
+                </div>
+              </div>
+
+              {/* Error messages */}
+              {paymentError && (
+                <div className="bg-red-50 border border-red-100 text-[#b91c1c] p-3 rounded-xl text-xs font-semibold">
+                  {paymentError}
+                </div>
+              )}
+            </div>
+
+            {/* Footer buttons */}
+            <div className="p-6 border-t border-zinc-100 bg-white flex items-center justify-end gap-3 shrink-0">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setSelectedPaymentStudent(null);
+                  setPaymentAmount("");
+                  setPaymentMode("cash");
+                  setReferenceNumber("");
+                  setPaymentError(null);
+                }}
+                className="border-zinc-200 text-zinc-500 hover:bg-zinc-50 font-semibold rounded-xl h-9"
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleRecordPaymentSubmit}
+                disabled={paymentSubmitting}
+                className="bg-[#ea580c] hover:bg-[#c2410c] text-white font-bold px-4 py-2 rounded-xl h-9 shadow-sm hover:shadow transition-all flex items-center justify-center gap-1.5 border border-[#ea580c]"
+              >
+                {paymentSubmitting ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" /> Recording...
+                  </>
+                ) : (
+                  "Record Payment"
+                )}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

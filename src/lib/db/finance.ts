@@ -43,6 +43,7 @@ export async function getStudentLedger(studentId: string): Promise<{
       .select(`
         id,
         fee_modifiers,
+        profile:profiles!students_profile_id_fkey(outstanding_balance),
         class:classes!students_class_id_fkey(base_fee_amount)
       `)
       .eq("id", studentId)
@@ -55,7 +56,9 @@ export async function getStudentLedger(studentId: string): Promise<{
 
     const baseFee = Number((data.class as any)?.base_fee_amount) || 0;
     const modifiers = (data.fee_modifiers as FeeModifier[]) || [];
-    const outstandingBalance = calculateOutstandingBalance(baseFee, modifiers);
+    const outstandingBalance = (data.profile as any)?.outstanding_balance !== undefined && (data.profile as any)?.outstanding_balance !== null
+      ? Number((data.profile as any).outstanding_balance)
+      : calculateOutstandingBalance(baseFee, modifiers);
 
     return {
       baseFee,
@@ -90,3 +93,68 @@ export async function updateStudentLedger(studentId: string, modifiers: FeeModif
     return false;
   }
 }
+
+export interface FeeTransaction {
+  id: string;
+  school_id: string;
+  student_id: string;
+  amount_paid: number;
+  payment_mode: "cash" | "upi" | "bank_transfer";
+  reference_number?: string;
+  created_at: string;
+}
+
+/**
+ * Records a successful payment transaction in the database.
+ */
+export async function recordPayment(payment: {
+  schoolId: string;
+  studentId: string; // references profile_id
+  amountPaid: number;
+  paymentMode: "cash" | "upi" | "bank_transfer";
+  referenceNumber?: string;
+}): Promise<{ success: boolean; error?: string }> {
+  try {
+    const { error } = await supabase
+      .from("fee_transactions")
+      .insert({
+        school_id: payment.schoolId,
+        student_id: payment.studentId,
+        amount_paid: payment.amountPaid,
+        payment_mode: payment.paymentMode,
+        reference_number: payment.referenceNumber || null,
+      });
+
+    if (error) {
+      console.error("Error inserting fee transaction:", error);
+      return { success: false, error: error.message };
+    }
+    return { success: true };
+  } catch (e: any) {
+    console.error("Failed to record payment:", e);
+    return { success: false, error: e.message };
+  }
+}
+
+/**
+ * Fetches the transaction log history for a student profile.
+ */
+export async function fetchTransactionsForStudent(studentProfileId: string): Promise<FeeTransaction[]> {
+  try {
+    const { data, error } = await supabase
+      .from("fee_transactions")
+      .select("*")
+      .eq("student_id", studentProfileId)
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      console.error("Error fetching transactions:", error);
+      return [];
+    }
+    return data || [];
+  } catch (e) {
+    console.error("Failed to fetch student transactions:", e);
+    return [];
+  }
+}
+

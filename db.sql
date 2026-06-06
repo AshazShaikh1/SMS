@@ -104,6 +104,7 @@ $$ LANGUAGE sql SECURITY DEFINER SET search_path = public;
 -- ----------------------------------------------------------------------------
 -- 🔐 3. Row-Level Security (RLS) Configuration & Policies
 -- ----------------------------------------------------------------------------
+ALTER TABLE public.schools ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.classes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.students ENABLE ROW LEVEL SECURITY;
@@ -112,6 +113,10 @@ ALTER TABLE public.exam_notices ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.onboarding_staging ENABLE ROW LEVEL SECURITY;
 
 -- 3.1 Standard Multi-Tenant Isolation Policies
+DROP POLICY IF EXISTS school_read_policy ON public.schools;
+CREATE POLICY school_read_policy ON public.schools
+    FOR SELECT USING (id = public.get_user_school(auth.uid()));
+
 DROP POLICY IF EXISTS profile_isolation_policy ON public.profiles;
 CREATE POLICY profile_isolation_policy ON public.profiles
     FOR ALL USING (school_id = public.get_user_school(auth.uid()));
@@ -147,6 +152,10 @@ CREATE POLICY onboarding_staging_policy ON public.onboarding_staging
     FOR ALL USING (school_id = public.get_user_school(auth.uid()));
 
 -- 3.2 Developer God-Mode Whitelist Policies (Bypasses School Isolation)
+DROP POLICY IF EXISTS dev_god_mode ON public.schools;
+CREATE POLICY dev_god_mode ON public.schools FOR ALL USING 
+    (public.get_user_role(auth.uid()) = 'developer');
+
 DROP POLICY IF EXISTS dev_god_mode ON public.profiles;
 CREATE POLICY dev_god_mode ON public.profiles FOR ALL USING 
     (public.get_user_role(auth.uid()) = 'developer');

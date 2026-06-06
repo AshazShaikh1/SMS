@@ -17,7 +17,8 @@ export async function fetchStudents(grade?: string, section?: string): Promise<S
         roll_number,
         fee_modifiers,
         parent_id,
-        profile:profiles!students_profile_id_fkey(full_name, email),
+        profile_id,
+        profile:profiles!students_profile_id_fkey(full_name, email, outstanding_balance),
         class:classes!students_class_id_fkey(id, grade_level, section, base_fee_amount)
       `)
       .eq("school_id", schoolId);
@@ -47,7 +48,11 @@ export async function fetchStudents(grade?: string, section?: string): Promise<S
       const sectionVal = row.class?.section || "";
       const baseFee = Number(row.class?.base_fee_amount) || 0;
       const modifiers = row.fee_modifiers || [];
-      const outstanding = calculateOutstandingBalance(baseFee, modifiers);
+      
+      // Use profiles.outstanding_balance if available, fallback to calculateOutstandingBalance
+      const outstanding = row.profile?.outstanding_balance !== undefined && row.profile?.outstanding_balance !== null
+        ? Number(row.profile.outstanding_balance)
+        : calculateOutstandingBalance(baseFee, modifiers);
 
       return {
         _id: row.id,
@@ -56,6 +61,7 @@ export async function fetchStudents(grade?: string, section?: string): Promise<S
           last_name,
           roll_number: row.roll_number,
           parent_id: row.parent_id || undefined,
+          student_profile_id: row.profile_id,
         },
         academic_mapping: {
           current_grade,

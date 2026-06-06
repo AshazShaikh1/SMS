@@ -6,7 +6,7 @@ import { Landmark, Calendar, Award, FileText, CheckCircle, HelpCircle, Download,
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { getStudentLedger, calculateOutstandingBalance } from "@/lib/db/finance";
+import { getStudentLedger, calculateOutstandingBalance, fetchTransactionsForStudent, FeeTransaction } from "@/lib/db/finance";
 import { calculateWeightedGrades } from "@/lib/db/gradebooks";
 import { Student, Gradebook } from "@/lib/db/mockDb";
 import { supabase } from "@/lib/supabase/client";
@@ -26,6 +26,8 @@ export default function ParentDashboard() {
   
   const [loading, setLoading] = useState(true);
   const [detailsLoading, setDetailsLoading] = useState(false);
+  const [transactions, setTransactions] = useState<FeeTransaction[]>([]);
+  const [transactionsLoading, setTransactionsLoading] = useState(false);
 
   // Load children mapped to this parent
   useEffect(() => {
@@ -178,6 +180,12 @@ export default function ParentDashboard() {
           
           setAttendanceRate(rate);
           setAttendanceStats({ present, absent, late });
+
+          // 4. Fetch Transactions
+          setTransactionsLoading(true);
+          const txs = await fetchTransactionsForStudent(child.student_profile_id);
+          setTransactions(txs);
+          setTransactionsLoading(false);
         } catch (e) {
           console.error("Error loading child details:", e);
         }
@@ -185,6 +193,37 @@ export default function ParentDashboard() {
       setDetailsLoading(false);
     }
     loadChildDetails();
+  }, [activeStudentId, children]);
+
+  // Real-time listener for child fee transactions
+  useEffect(() => {
+    const child = children.find((c) => c._id === activeStudentId);
+    const profileId = child?.student_profile_id;
+    if (!activeStudentId || !profileId) return;
+
+    const channel = supabase
+      .channel(`parent-portal-payments-${activeStudentId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "fee_transactions",
+          filter: `student_id=eq.${profileId}`,
+        },
+        async (payload) => {
+          console.log("Real-time transaction change received:", payload);
+          const l = await getStudentLedger(activeStudentId);
+          setLedger(l);
+          const txList = await fetchTransactionsForStudent(profileId);
+          setTransactions(txList);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [activeStudentId, children]);
 
   if (loading) {
@@ -288,6 +327,51 @@ export default function ParentDashboard() {
                     </div>
                   )}
                 </>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Historical Transactions List Card */}
+          <Card className="border border-zinc-200 shadow-xs overflow-hidden border-l-4 border-l-[#fed7aa]">
+            <CardHeader className="p-5 pb-3">
+              <CardTitle className="text-xs font-semibold uppercase tracking-wider text-zinc-400">
+                Payment Ledger Receipts
+              </CardTitle>
+              <CardDescription className="text-[10px] text-zinc-450 mt-0.5">
+                Historical fee collection entries for this child
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="p-5 pt-0 space-y-4">
+              {transactionsLoading ? (
+                <div className="flex justify-center items-center py-6">
+                  <Loader2 className="w-5 h-5 animate-spin text-[#ea580c]" />
+                </div>
+              ) : transactions.length === 0 ? (
+                <p className="text-xs text-zinc-450 italic py-2">No payment transactions found.</p>
+              ) : (
+                <div className="divide-y divide-zinc-150">
+                  {transactions.map((tx) => (
+                    <div key={tx.id} className="py-3 flex justify-between items-center text-xs first:pt-0 last:pb-0">
+                      <div className="space-y-1">
+                        <span className="font-bold text-zinc-800 block text-sm">
+                          ₹{Number(tx.amount_paid).toLocaleString("en-IN")}
+                        </span>
+                        <span className="text-[10px] text-zinc-405 block">
+                          Mode: <span className="capitalize font-semibold text-zinc-600">{tx.payment_mode}</span>
+                          {tx.reference_number && ` | Ref: ${tx.reference_number}`}
+                        </span>
+                      </div>
+                      <div className="text-right space-y-1">
+                        <Badge className="bg-emerald-50 text-emerald-700 border border-emerald-200 text-[9.5px] font-bold py-0.5 px-1.5">
+                          Success
+                        </Badge>
+                        <span className="text-[9px] text-zinc-400 block font-medium">
+                          {new Date(tx.created_at).toLocaleDateString("en-IN")}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               )}
             </CardContent>
           </Card>

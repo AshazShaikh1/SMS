@@ -7,6 +7,7 @@ export interface Student {
     last_name: string;
     roll_number: number;
     parent_id: string;
+    student_profile_id?: string;
   };
   academic_mapping: {
     current_grade: string;

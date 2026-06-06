@@ -18,10 +18,16 @@ BEGIN
         WHERE table_schema = 'public' 
           AND table_name = 'classes'
     ) THEN
-        ALTER TABLE exam_notices 
-        ADD CONSTRAINT fk_exam_notices_class 
-        FOREIGN KEY (class_id) REFERENCES classes(id) 
-        ON DELETE CASCADE;
+        IF NOT EXISTS (
+            SELECT 1 FROM information_schema.table_constraints 
+            WHERE table_schema = 'public' 
+              AND constraint_name = 'fk_exam_notices_class'
+        ) THEN
+            ALTER TABLE exam_notices 
+            ADD CONSTRAINT fk_exam_notices_class 
+            FOREIGN KEY (class_id) REFERENCES classes(id) 
+            ON DELETE CASCADE;
+        END IF;
     END IF;
 END $$;
 

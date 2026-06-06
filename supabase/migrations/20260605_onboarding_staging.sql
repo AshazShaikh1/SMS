@@ -13,5 +13,7 @@ ALTER TABLE public.onboarding_staging ENABLE ROW LEVEL SECURITY;
 
 -- 3. Create RLS isolation policy
 -- Admins/Users inside profiles can read/write their school's staging rows
+DROP POLICY IF EXISTS onboarding_staging_policy ON public.onboarding_staging;
 CREATE POLICY onboarding_staging_policy ON public.onboarding_staging
     FOR ALL USING (school_id = (SELECT school_id FROM public.profiles WHERE id = auth.uid()));
+

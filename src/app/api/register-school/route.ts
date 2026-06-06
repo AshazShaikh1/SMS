@@ -81,6 +81,20 @@ export async function POST(req: NextRequest) {
     }
 
     // ─── 3. Create Admin in Supabase Auth (email_confirm = true) ─────────────
+    // Clean up any existing auth user with the same email to avoid registration conflicts
+    try {
+      const { data: userData } = await adminClient.auth.admin.listUsers({
+        page: 1,
+        perPage: 1000
+      });
+      const existingUser = userData?.users.find(u => u.email === adminEmailAddress);
+      if (existingUser) {
+        await adminClient.auth.admin.deleteUser(existingUser.id);
+      }
+    } catch (cleanupErr) {
+      console.warn("Auth cleanup warning:", cleanupErr);
+    }
+
     const { data: authData, error: authError } = await adminClient.auth.admin.createUser({
       email: adminEmailAddress,
       password: pin,
