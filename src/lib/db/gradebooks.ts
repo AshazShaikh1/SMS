@@ -51,6 +51,32 @@ export async function fetchGradebook(
       instructorId = classData.instructor_id || "TCH_3021";
     }
 
+    // Resolve teacher from allocations junction table matching classId and subjectId
+    if (classId) {
+      const { data: allocData } = await supabase
+        .from("teacher_allocations")
+        .select("teacher_id")
+        .eq("class_id", classId)
+        .eq("subject_name", subjectId)
+        .maybeSingle();
+
+      if (allocData) {
+        instructorId = allocData.teacher_id;
+      } else {
+        // Fallback: Check if there's any allocation for this class at all
+        const { data: fallbackAlloc } = await supabase
+          .from("teacher_allocations")
+          .select("teacher_id")
+          .eq("class_id", classId)
+          .limit(1)
+          .maybeSingle();
+          
+        if (fallbackAlloc) {
+          instructorId = fallbackAlloc.teacher_id;
+        }
+      }
+    }
+
     // 2. Fetch all assessments associated with this class
     const { data: gradebooksData, error: gradebooksError } = await supabase
       .from("gradebooks")

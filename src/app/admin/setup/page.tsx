@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import * as XLSX from "xlsx";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { 
@@ -35,9 +36,21 @@ export default function OnboardingWizard() {
   const [toast, setToast] = useState<{ message: string; type: "success" | "warning" | "error" | "info" } | null>(null);
 
   // STEP 1: School Identity & Grade Pricing Matrix (with defaults for development)
-  const [schoolName, setSchoolName] = useState("Antigravity Academy");
-  const [academicYear, setAcademicYear] = useState("2026-2027");
-  const [adminName, setAdminName] = useState("Ashaz Shaikh");
+  const [schoolName, setSchoolName] = useState("");
+  const [academicYear, setAcademicYear] = useState("");
+  const [adminName, setAdminName] = useState("");
+
+  // Master Upload States
+  const [step1Mode, setStep1Mode] = useState<"manual" | "master_upload">("manual");
+  const [masterPastedText, setMasterPastedText] = useState("");
+  const [missingFields, setMissingFields] = useState<{
+    schoolName?: boolean;
+    academicYear?: boolean;
+    adminName?: boolean;
+    gradesWithMissingFees: string[];
+    studentsWithMissingParents: { studentName: string; rowIndex: number }[];
+  } | null>(null);
+  const [missingFieldsValues, setMissingFieldsValues] = useState<Record<string, string>>({});
 
   // Dynamic Grade List State
   const [gradeFees, setGradeFees] = useState<{ grade: string; fee: number; extraCharge: number; discount: number }[]>([
@@ -46,11 +59,6 @@ export default function OnboardingWizard() {
     { grade: "Grade 3", fee: 20000, extraCharge: 0, discount: 0 },
     { grade: "Grade 4", fee: 22000, extraCharge: 0, discount: 0 },
     { grade: "Grade 5", fee: 25000, extraCharge: 0, discount: 0 },
-    { grade: "Grade 6", fee: 30000, extraCharge: 0, discount: 0 },
-    { grade: "Grade 7", fee: 35000, extraCharge: 0, discount: 0 },
-    { grade: "Grade 8", fee: 40000, extraCharge: 0, discount: 0 },
-    { grade: "Grade 9", fee: 45000, extraCharge: 0, discount: 0 },
-    { grade: "Grade 10", fee: 50000, extraCharge: 0, discount: 0 },
   ]);
 
   const [feeErrors, setFeeErrors] = useState<Record<string, boolean>>({});
@@ -65,17 +73,13 @@ export default function OnboardingWizard() {
   const [matrix, setMatrix] = useState<Record<string, Record<string, boolean>>>({});
   const [preparedClasses, setPreparedClasses] = useState<{ gradeKey: string; section: string; baseFee: number }[]>([]);
 
-  // STEP 3: Global Faculty Bulk Spreadsheet Grid (Assign to Class Dropdown, No Email collected)
-  const [teachers, setTeachers] = useState<{ id: string; name: string; assignedClasses: string[] }[]>([
-    { id: "teach-1", name: "Mrs. Susan Smith", assignedClasses: [] },
-    { id: "teach-2", name: "Mr. Ramesh Kumar", assignedClasses: [] },
-  ]);
+  // STEP 3: Global Faculty Multi-Subject Matrix
+  const [teachers, setTeachers] = useState<{ id: string; name: string; allocations: { subjectName: string; classes: string[] }[] }[]>([]);
   const [newTeacherName, setNewTeacherName] = useState("");
-  const [newTeacherClasses, setNewTeacherClasses] = useState<string[]>([]);
+  const [step3Mode, setStep3Mode] = useState<"manual" | "upload">("manual");
+  const [skippedRowsWarning, setSkippedRowsWarning] = useState<string[]>([]);
   const [generatedUsername, setGeneratedUsername] = useState("");
   const [generatedPIN, setGeneratedPIN] = useState("");
-  const [openTeacherDropdownId, setOpenTeacherDropdownId] = useState<string | null>(null);
-  const [openAdderDropdown, setOpenAdderDropdown] = useState(false);
 
   // STEP 4: Robust Student Processing Terminal
   const [pastedText, setPastedText] = useState("");
@@ -96,18 +100,7 @@ export default function OnboardingWizard() {
     baseFee: number;
   }[]>([]);
 
-  // Click outside to close dropdowns handler
-  useEffect(() => {
-    const handleOutsideClick = (e: MouseEvent) => {
-      const target = e.target as HTMLElement;
-      if (!target.closest(".teacher-dropdown-container")) {
-        setOpenTeacherDropdownId(null);
-        setOpenAdderDropdown(false);
-      }
-    };
-    document.addEventListener("mousedown", handleOutsideClick);
-    return () => document.removeEventListener("mousedown", handleOutsideClick);
-  }, []);
+
 
   // Synchronize matrix whenever gradeFees or sectionsList changes
   useEffect(() => {
@@ -135,7 +128,7 @@ export default function OnboardingWizard() {
       setFeeErrors(prev => ({ ...prev, [gradeName]: true }));
       setToast({ message: "Tuition fee cannot be negative.", type: "error" });
       const updated = [...gradeFees];
-      updated[index].fee = 0;
+      updated[index].fee = isNaN(num) ? 0 : num;
       setGradeFees(updated);
     } else {
       setFeeErrors(prev => ({ ...prev, [gradeName]: false }));
@@ -154,7 +147,7 @@ export default function OnboardingWizard() {
       setExtraErrors(prev => ({ ...prev, [gradeName]: true }));
       setToast({ message: "Extra charge cannot be negative.", type: "error" });
       const updated = [...gradeFees];
-      updated[index].extraCharge = 0;
+      updated[index].extraCharge = isNaN(num) ? 0 : num;
       setGradeFees(updated);
     } else {
       setExtraErrors(prev => ({ ...prev, [gradeName]: false }));
@@ -167,13 +160,13 @@ export default function OnboardingWizard() {
   const handleDiscountChange = (index: number, val: string) => {
     const gradeName = gradeFees[index].grade;
     const num = Number(val);
-    const isInvalid = isNaN(num) || num < 0 || num >= 110;
+    const isInvalid = isNaN(num) || num < 0 || num > 100;
 
     if (isInvalid) {
       setDiscountErrors(prev => ({ ...prev, [gradeName]: true }));
-      setToast({ message: "Discount percentage must be under 110% and non-negative.", type: "error" });
+      setToast({ message: "Discount percentage must be 100% or less and non-negative.", type: "error" });
       const updated = [...gradeFees];
-      updated[index].discount = 0;
+      updated[index].discount = isNaN(num) ? 0 : num;
       setGradeFees(updated);
     } else {
       setDiscountErrors(prev => ({ ...prev, [gradeName]: false }));
@@ -196,15 +189,420 @@ export default function OnboardingWizard() {
   const handleRemoveGrade = (gradeName: string) => {
     setGradeFees(gradeFees.filter((g) => g.grade !== gradeName));
     // Clear errors associated with the deleted grade
-    setFeeErrors(prev => { const n = { ...prev }; delete n[gradeName]; return n; });
-    setExtraErrors(prev => { const n = { ...prev }; delete n[gradeName]; return n; });
-    setDiscountErrors(prev => { const n = { ...prev }; delete n[gradeName]; return n; });
+  };
+
+  // --------------------------------------------------------------------------
+  // Step 1 Master Upload Actions & Ingestion
+  // --------------------------------------------------------------------------
+  const handleMasterFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const data = event.target?.result;
+        const workbook = XLSX.read(data, { type: "binary" });
+        const sheetName = workbook.SheetNames[0];
+        const sheet = workbook.Sheets[sheetName];
+        const rows = XLSX.utils.sheet_to_json<any[]>(sheet, { header: 1 });
+        
+        if (rows.length === 0) {
+          setToast({ message: "The uploaded spreadsheet is empty.", type: "warning" });
+          return;
+        }
+        
+        parseMasterData(rows);
+      } catch (err: any) {
+        setToast({ message: `Failed to read file: ${err.message}`, type: "error" });
+      }
+    };
+    reader.readAsBinaryString(file);
+  };
+
+  const parseMasterPastedText = (text: string) => {
+    if (!text.trim()) {
+      setToast({ message: "Please paste your roster data first.", type: "warning" });
+      return;
+    }
+
+    const lines = text.split(/\r?\n/);
+    const rows: string[][] = [];
+
+    for (let line of lines) {
+      line = line.trim();
+      if (!line) continue;
+
+      const cols = line.includes("\t") ? line.split("\t") : line.split(",");
+      rows.push(cols.map((c) => c.trim()));
+    }
+
+    if (rows.length === 0) {
+      setToast({ message: "Could not parse any rows from the pasted text.", type: "warning" });
+      return;
+    }
+
+    parseMasterData(rows);
+  };
+
+  const parseMasterData = (rows: any[][]) => {
+    if (rows.length === 0) return;
+    const headerRow = rows[0] || [];
+    const headers = headerRow.map((cell: any) => String(cell || "").trim().toLowerCase());
+
+    // Map columns using case-insensitive keyword regex
+    let schoolCol = -1;
+    let yearCol = -1;
+    let adminCol = -1;
+    let gradeCol = -1;
+    let feeCol = -1;
+    let extraCol = -1;
+    let discountCol = -1;
+    let teacherCol = -1;
+    let subjectCol = -1;
+    let studentCol = -1;
+    let rollCol = -1;
+    let studentEmailCol = -1;
+    let parentCol = -1;
+    let parentEmailCol = -1;
+    let parentPhoneCol = -1;
+
+    for (let i = 0; i < headers.length; i++) {
+      const h = headers[i];
+      if (/school|academy/i.test(h)) schoolCol = i;
+      else if (/year|academic/i.test(h)) yearCol = i;
+      else if (/admin|owner/i.test(h)) adminCol = i;
+      else if (/fee|tuition/i.test(h)) feeCol = i;
+      else if (/extra|charge/i.test(h)) extraCol = i;
+      else if (/discount/i.test(h)) discountCol = i;
+      else if (/teacher|faculty|staff|instructor/i.test(h)) teacherCol = i;
+      else if (/subject|course|paper/i.test(h)) subjectCol = i;
+      else if (/student/i.test(h)) studentCol = i;
+      else if (/roll/i.test(h)) rollCol = i;
+      else if (/student\s*email/i.test(h)) studentEmailCol = i;
+      else if (/parent|father|mother/i.test(h)) parentCol = i;
+      else if (/parent\s*email/i.test(h)) parentEmailCol = i;
+      else if (/phone|mobile|whatsapp/i.test(h)) parentPhoneCol = i;
+      else if (/grade|class|std|level|section|div/i.test(h) && gradeCol === -1) gradeCol = i;
+    }
+
+    if (gradeCol === -1) gradeCol = 0;
+
+    let parsedSchoolName = "";
+    let parsedAcademicYear = "";
+    let parsedAdminName = "";
+
+    const parsedGradesMap = new Map<string, { fee: number; extra: number; discount: number }>();
+    const parsedSections = new Set<string>();
+    const parsedMatrix: Record<string, Record<string, boolean>> = {};
+    const parsedTeachersMap = new Map<string, { id: string; name: string; allocations: { subjectName: string; classes: string[] }[] }>();
+    const parsedStudentsList: typeof parsedStudents = [];
+
+    const missingGradesWithFees = new Set<string>();
+    const missingParentsList: { studentName: string; rowIndex: number }[] = [];
+
+    for (let r = 1; r < rows.length; r++) {
+      const row = rows[r];
+      if (!row || row.length === 0) continue;
+
+      if (schoolCol !== -1 && row[schoolCol] && !parsedSchoolName) parsedSchoolName = String(row[schoolCol]).trim();
+      if (yearCol !== -1 && row[yearCol] && !parsedAcademicYear) parsedAcademicYear = String(row[yearCol]).trim();
+      if (adminCol !== -1 && row[adminCol] && !parsedAdminName) parsedAdminName = String(row[adminCol]).trim();
+
+      const classValue = gradeCol !== -1 ? String(row[gradeCol] || "").trim() : "";
+      let resolvedGrade = "";
+      let resolvedSection = "";
+      let classKey = "";
+
+      if (classValue) {
+        try {
+          const resolved = resolveGradeSection(classValue);
+          resolvedGrade = resolved.grade;
+          resolvedSection = resolved.section;
+          classKey = `${resolvedGrade}-${resolvedSection}`;
+          parsedSections.add(resolvedSection);
+          
+          if (!parsedMatrix[resolvedGrade]) parsedMatrix[resolvedGrade] = {};
+          parsedMatrix[resolvedGrade][resolvedSection] = true;
+        } catch (e) {
+          // Class name couldn't be resolved cleanly
+        }
+      }
+
+      if (resolvedGrade) {
+        const feeVal = feeCol !== -1 ? parseInt(String(row[feeCol] || "").replace(/[^0-9]/g, ""), 10) : NaN;
+        const extraVal = extraCol !== -1 ? parseInt(String(row[extraCol] || "").replace(/[^0-9]/g, ""), 10) : 0;
+        let discountVal = discountCol !== -1 ? parseInt(String(row[discountCol] || "").replace(/[^0-9]/g, ""), 10) : 0;
+        if (isNaN(discountVal) || discountVal < 0) discountVal = 0;
+        if (discountVal > 100) discountVal = 100;
+        
+        if (!parsedGradesMap.has(resolvedGrade)) {
+          parsedGradesMap.set(resolvedGrade, {
+            fee: isNaN(feeVal) ? 0 : feeVal,
+            extra: isNaN(extraVal) ? 0 : extraVal,
+            discount: discountVal
+          });
+        } else {
+          const existing = parsedGradesMap.get(resolvedGrade)!;
+          if (existing.fee === 0 && !isNaN(feeVal) && feeVal > 0) {
+            existing.fee = feeVal;
+          }
+        }
+      }
+
+      const teacherName = teacherCol !== -1 ? String(row[teacherCol] || "").trim() : "";
+      const subjectName = subjectCol !== -1 ? String(row[subjectCol] || "").trim() : "";
+      
+      if (teacherName) {
+        const tKey = teacherName.toLowerCase();
+        let tObj = parsedTeachersMap.get(tKey);
+        if (!tObj) {
+          tObj = {
+            id: `teach-${crypto.randomUUID()}`,
+            name: teacherName,
+            allocations: []
+          };
+          parsedTeachersMap.set(tKey, tObj);
+        }
+        
+        if (subjectName && classKey) {
+          const sKey = subjectName.toLowerCase();
+          const existingAlloc = tObj.allocations.find(a => a.subjectName.toLowerCase() === sKey);
+          if (existingAlloc) {
+            if (!existingAlloc.classes.includes(classKey)) {
+              existingAlloc.classes.push(classKey);
+            }
+          } else {
+            tObj.allocations.push({
+              subjectName,
+              classes: [classKey]
+            });
+          }
+        }
+      }
+
+      const studentName = studentCol !== -1 ? String(row[studentCol] || "").trim() : "";
+      if (studentName) {
+        let studentEmail = studentEmailCol !== -1 ? String(row[studentEmailCol] || "").trim() : "";
+        let rollStr = rollCol !== -1 ? String(row[rollCol] || "").trim() : "";
+        let parentName = parentCol !== -1 ? String(row[parentCol] || "").trim() : "";
+        let parentEmail = parentEmailCol !== -1 ? String(row[parentEmailCol] || "").trim() : "";
+        let parentPhone = parentPhoneCol !== -1 ? String(row[parentPhoneCol] || "").trim() : "";
+
+        let repairedFields: any = {};
+        
+        if (!studentEmail) {
+          const hash = Math.random().toString(36).substring(2, 6);
+          const cleanName = studentName.toLowerCase().replace(/[^a-z0-9]/g, "");
+          studentEmail = `student.${cleanName}.${hash}@school.com`;
+          repairedFields.emailGenerated = true;
+        }
+        if (!parentEmail && parentName) {
+          const hash = Math.random().toString(36).substring(2, 6);
+          const cleanName = parentName.toLowerCase().replace(/[^a-z0-9]/g, "");
+          parentEmail = `parent.${cleanName}.${hash}@school.com`;
+          repairedFields.emailGenerated = true;
+        }
+        if (!parentPhone) {
+          repairedFields.whatsappDisabled = true;
+        }
+
+        let rollNumber = parseInt(rollStr, 10);
+        if (isNaN(rollNumber) || rollNumber <= 0) {
+          rollNumber = 0;
+          repairedFields.rollAssigned = true;
+        }
+
+        if (!parentName) {
+          missingParentsList.push({ studentName, rowIndex: r + 1 });
+        }
+
+        parsedStudentsList.push({
+          name: studentName,
+          email: studentEmail,
+          rollNumber,
+          gradeLevel: resolvedGrade || "Grade 10",
+          section: resolvedSection || "A",
+          parentName: parentName || "",
+          parentEmail: parentEmail || "",
+          parentPhone: parentPhone || "",
+          repairedFields,
+          baseFee: 0
+        });
+      }
+    }
+
+    parsedGradesMap.forEach((val, key) => {
+      if (val.fee === 0) {
+        missingGradesWithFees.add(key);
+      }
+    });
+
+    const hasMissingSchoolName = !parsedSchoolName && !schoolName;
+    const hasMissingAcademicYear = !parsedAcademicYear && !academicYear;
+    const hasMissingAdminName = !parsedAdminName && !adminName;
+
+    const missingDetected = 
+      hasMissingSchoolName || 
+      hasMissingAcademicYear || 
+      hasMissingAdminName || 
+      missingGradesWithFees.size > 0 || 
+      missingParentsList.length > 0;
+
+    const tempState = {
+      schoolName: parsedSchoolName || schoolName,
+      academicYear: parsedAcademicYear || academicYear,
+      adminName: parsedAdminName || adminName,
+      gradeFees: Array.from(parsedGradesMap.entries()).map(([grade, val]) => ({
+        grade,
+        fee: val.fee,
+        extraCharge: val.extra,
+        discount: val.discount
+      })),
+      sectionsList: parsedSections.size > 0 ? Array.from(parsedSections).sort() : sectionsList,
+      matrix: Object.keys(parsedMatrix).length > 0 ? parsedMatrix : matrix,
+      teachers: Array.from(parsedTeachersMap.values()),
+      students: parsedStudentsList
+    };
+
+    setMissingFieldsValues(prev => ({
+      ...prev,
+      _tempState: JSON.stringify(tempState)
+    }));
+
+    if (missingDetected) {
+      setMissingFields({
+        schoolName: hasMissingSchoolName,
+        academicYear: hasMissingAcademicYear,
+        adminName: hasMissingAdminName,
+        gradesWithMissingFees: Array.from(missingGradesWithFees),
+        studentsWithMissingParents: missingParentsList
+      });
+      setToast({ message: "Master file parsed. Please resolve the missing details before applying.", type: "warning" });
+    } else {
+      applyMasterState(tempState);
+    }
+  };
+
+  const applyMasterState = (state: any) => {
+    if (state.schoolName) setSchoolName(state.schoolName);
+    if (state.academicYear) setAcademicYear(state.academicYear);
+    if (state.adminName) setAdminName(state.adminName);
+    if (state.gradeFees && state.gradeFees.length > 0) setGradeFees(state.gradeFees);
+    if (state.sectionsList && state.sectionsList.length > 0) setSectionsList(state.sectionsList);
+    if (state.matrix && Object.keys(state.matrix).length > 0) setMatrix(state.matrix);
+    if (state.teachers && state.teachers.length > 0) setTeachers(state.teachers);
+    
+    if (state.students && state.students.length > 0) {
+      const finalStudents = state.students.map((student: any) => {
+        const matchingFee = state.gradeFees?.find((gf: any) => gf.grade === student.gradeLevel)?.fee || 
+                            gradeFees.find((gf) => gf.grade === student.gradeLevel)?.fee || 0;
+        return {
+          ...student,
+          baseFee: matchingFee
+        };
+      });
+      setParsedStudents(finalStudents);
+    }
+
+    setMissingFields(null);
+    setToast({ message: "Master data applied to school setup steps successfully!", type: "success" });
+  };
+
+  const applyMasterDataResolution = () => {
+    try {
+      const rawTempState = missingFieldsValues._tempState;
+      if (!rawTempState) throw new Error("Missing staged master state");
+
+      const tempState = JSON.parse(rawTempState);
+
+      if (missingFields?.schoolName) {
+        const val = missingFieldsValues.schoolName?.trim();
+        if (!val) {
+          setToast({ message: "Please enter the School Name.", type: "error" });
+          return;
+        }
+        tempState.schoolName = val;
+      }
+      if (missingFields?.academicYear) {
+        const val = missingFieldsValues.academicYear?.trim();
+        if (!val) {
+          setToast({ message: "Please enter the Academic Year.", type: "error" });
+          return;
+        }
+        tempState.academicYear = val;
+      }
+      if (missingFields?.adminName) {
+        const val = missingFieldsValues.adminName?.trim();
+        if (!val) {
+          setToast({ message: "Please enter the Admin Owner Name.", type: "error" });
+          return;
+        }
+        tempState.adminName = val;
+      }
+
+      if (missingFields?.gradesWithMissingFees) {
+        for (const grade of missingFields.gradesWithMissingFees) {
+          const val = missingFieldsValues[`fee_${grade}`];
+          const fee = parseInt(val, 10);
+          if (isNaN(fee) || fee < 0) {
+            setToast({ message: `Please enter a valid fee for ${grade}.`, type: "error" });
+            return;
+          }
+          const gradeFeeObj = tempState.gradeFees.find((gf: any) => gf.grade === grade);
+          if (gradeFeeObj) {
+            gradeFeeObj.fee = fee;
+          } else {
+            tempState.gradeFees.push({ grade, fee, extraCharge: 0, discount: 0 });
+          }
+        }
+      }
+
+      if (missingFields?.studentsWithMissingParents) {
+        for (const item of missingFields.studentsWithMissingParents) {
+          const val = missingFieldsValues[`parent_${item.rowIndex}`]?.trim();
+          if (!val) {
+            setToast({ message: `Please enter parent name for student ${item.studentName}.`, type: "error" });
+            return;
+          }
+          const studentObj = tempState.students.find((s: any) => s.name === item.studentName);
+          if (studentObj) {
+            studentObj.parentName = val;
+            if (!studentObj.parentEmail) {
+              const hash = Math.random().toString(36).substring(2, 6);
+              const cleanName = val.toLowerCase().replace(/[^a-z0-9]/g, "");
+              studentObj.parentEmail = `parent.${cleanName}.${hash}@school.com`;
+            }
+          }
+        }
+      }
+
+      applyMasterState(tempState);
+    } catch (e: any) {
+      setToast({ message: `Error resolving fields: ${e.message}`, type: "error" });
+    }
   };
 
   const handleStep1Next = () => {
-    const activeSchoolName = schoolName.trim() || "Antigravity Academy";
-    const activeYear = academicYear.trim() || "2026-2027";
-    const activeAdmin = adminName.trim() || "System Admin";
+    const activeSchoolName = schoolName.trim();
+    const activeYear = academicYear.trim();
+    const activeAdmin = adminName.trim();
+
+    if (!activeSchoolName) {
+      setToast({ message: "School Name is required.", type: "error" });
+      setError("Please enter a School Name.");
+      return;
+    }
+    if (!activeYear) {
+      setToast({ message: "Academic Year is required.", type: "error" });
+      setError("Please enter an Academic Year.");
+      return;
+    }
+    if (!activeAdmin) {
+      setToast({ message: "Admin Owner Name is required.", type: "error" });
+      setError("Please enter an Admin Owner Name.");
+      return;
+    }
 
     // Block advancement if any input validation fails
     const hasErrors = Object.values(feeErrors).some(Boolean) || 
@@ -312,29 +710,222 @@ export default function OnboardingWizard() {
       {
         id: `teach-${crypto.randomUUID()}`,
         name: activeName,
-        assignedClasses: newTeacherClasses,
+        allocations: [],
       },
     ]);
     setNewTeacherName("");
-    setNewTeacherClasses([]);
-    setOpenAdderDropdown(false);
   };
 
   const handleRemoveTeacher = (id: string) => {
     setTeachers(teachers.filter((t) => t.id !== id));
   };
 
-  const handleToggleTeacherClass = (teacherId: string, classKey: string) => {
-    setTeachers(
-      teachers.map((t) => {
-        if (t.id !== teacherId) return t;
-        const exists = t.assignedClasses.includes(classKey);
-        const assigned = exists
-          ? t.assignedClasses.filter((c) => c !== classKey)
-          : [...t.assignedClasses, classKey];
-        return { ...t, assignedClasses: assigned };
-      })
-    );
+  const handleUpdateTeacherName = (id: string, name: string) => {
+    setTeachers(teachers.map(t => t.id === id ? { ...t, name } : t));
+  };
+
+  const handleAddAllocation = (teacherId: string) => {
+    setTeachers(teachers.map(t => {
+      if (t.id !== teacherId) return t;
+      return {
+        ...t,
+        allocations: [...t.allocations, { subjectName: "", classes: [] }]
+      };
+    }));
+  };
+
+  const handleRemoveAllocation = (teacherId: string, allocIndex: number) => {
+    setTeachers(teachers.map(t => {
+      if (t.id !== teacherId) return t;
+      const nextAllocations = [...t.allocations];
+      nextAllocations.splice(allocIndex, 1);
+      return { ...t, allocations: nextAllocations };
+    }));
+  };
+
+  const handleUpdateSubjectName = (teacherId: string, allocIndex: number, subjectName: string) => {
+    setTeachers(teachers.map(t => {
+      if (t.id !== teacherId) return t;
+      const nextAllocations = t.allocations.map((alloc, idx) => {
+        if (idx !== allocIndex) return alloc;
+        return { ...alloc, subjectName };
+      });
+      return { ...t, allocations: nextAllocations };
+    }));
+  };
+
+  const handleToggleAllocationClass = (teacherId: string, allocIndex: number, classKey: string) => {
+    setTeachers(teachers.map(t => {
+      if (t.id !== teacherId) return t;
+      const nextAllocations = t.allocations.map((alloc, idx) => {
+        if (idx !== allocIndex) return alloc;
+        const isSelected = alloc.classes.includes(classKey);
+        const nextClasses = isSelected
+          ? alloc.classes.filter(c => c !== classKey)
+          : [...alloc.classes, classKey];
+        return { ...alloc, classes: nextClasses };
+      });
+      return { ...t, allocations: nextAllocations };
+    }));
+  };
+
+  // Helper to resolve Grade and Section from messy strings
+  const resolveGradeSection = (cellValue: string) => {
+    const val = String(cellValue || "").trim();
+    if (!val) throw new Error("Empty class field");
+
+    // Matches Grade and Section smashed together or with separators, e.g., "5B", "Grade 5-A", "Class 6 Sec A"
+    const match = val.match(/(?:grade|class|std|level)?\s*(\d+)\s*[-_\s\/\\]?\s*(?:sec|section|div)?\s*([a-zA-Z])/i);
+    if (match) {
+      const gradeNum = parseInt(match[1], 10);
+      const sectionLetter = match[2].toUpperCase();
+      return { grade: `Grade ${gradeNum}`, section: sectionLetter };
+    }
+    
+    // Try finding any number (grade) and any alphabetical char (section) separately
+    const numMatch = val.match(/\d+/);
+    const letterMatch = val.match(/[a-zA-Z]/);
+    if (numMatch && letterMatch) {
+      const gradeNum = parseInt(numMatch[0], 10);
+      const sectionLetter = letterMatch[0].toUpperCase();
+      return { grade: `Grade ${gradeNum}`, section: sectionLetter };
+    }
+
+    throw new Error(`Cannot parse Grade/Section format: "${val}"`);
+  };
+
+  // Defensive SheetJS spreadsheet parser for Step 3
+  const parseStep3FileData = (rows: any[][]) => {
+    // 1. Identify Headers
+    const headerRow = rows[0] || [];
+    const headers = headerRow.map((cell: any) => String(cell || "").trim().toLowerCase());
+
+    let teacherColIndex = -1;
+    let subjectColIndex = -1;
+    let classColIndex = -1;
+
+    for (let i = 0; i < headers.length; i++) {
+      const h = headers[i];
+      if (teacherColIndex === -1 && /teacher|name|faculty|staff|instructor/i.test(h)) {
+        teacherColIndex = i;
+      } else if (subjectColIndex === -1 && /subject|course|class\s*name|paper/i.test(h)) {
+        subjectColIndex = i;
+      } else if (classColIndex === -1 && /grade|std|level|section|div|class/i.test(h)) {
+        classColIndex = i;
+      }
+    }
+
+    // Default column fallbacks if headers are not found
+    if (teacherColIndex === -1) teacherColIndex = 0;
+    if (subjectColIndex === -1) subjectColIndex = 1;
+    if (classColIndex === -1) classColIndex = 2;
+
+    // Cache current state mapping by lowercase name to enable de-duplication/merge
+    const teacherMap = new Map<string, typeof teachers[0]>();
+    teachers.forEach((t) => {
+      teacherMap.set(t.name.trim().toLowerCase(), JSON.parse(JSON.stringify(t)));
+    });
+
+    // Keep track of manual subjects already entered
+    const initialManualSubjects = new Set<string>();
+    teachers.forEach((t) => {
+      const teacherKey = t.name.trim().toLowerCase();
+      t.allocations.forEach((a) => {
+        initialManualSubjects.add(`${teacherKey}:${a.subjectName.trim().toLowerCase()}`);
+      });
+    });
+
+    const newWarnings: string[] = [];
+
+    // 2. Loop systematically from row index 1 to the end
+    for (let r = 1; r < rows.length; r++) {
+      const row = rows[r];
+      if (!row || row.length === 0) continue;
+
+      const teacherName = String(row[teacherColIndex] || "").trim();
+      const subjectName = String(row[subjectColIndex] || "").trim();
+      const classValue = String(row[classColIndex] || "").trim();
+
+      if (!teacherName && !subjectName && !classValue) continue; // Skip blank rows
+      if (!teacherName) {
+        newWarnings.push(`Row ${r + 1}: Skipping row with missing Teacher Name.`);
+        continue;
+      }
+
+      try {
+        let resolvedClassKey = "unassigned";
+        
+        if (classValue) {
+          try {
+            // Regex splitting for grade and section
+            const resolved = resolveGradeSection(classValue);
+            const classKey = `${resolved.grade}-${resolved.section}`;
+            
+            // Check if class exists in Step 2 generated list
+            const exists = preparedClasses.some(c => `${c.gradeKey}-${c.section}` === classKey);
+            if (exists) {
+              resolvedClassKey = classKey;
+            } else {
+              throw new Error(`Classroom "${classKey}" was not generated in Step 2.`);
+            }
+          } catch (classErr: any) {
+            resolvedClassKey = "unassigned";
+            newWarnings.push(`Row ${r + 1}: Could not resolve classroom "${classValue}" for ${teacherName} (${classErr.message}).`);
+          }
+        } else {
+          resolvedClassKey = "unassigned";
+          newWarnings.push(`Row ${r + 1}: Classroom field is empty for ${teacherName}.`);
+        }
+
+        const teacherKey = teacherName.toLowerCase();
+        let teacherObj = teacherMap.get(teacherKey);
+        
+        if (!teacherObj) {
+          teacherObj = {
+            id: `teach-${crypto.randomUUID()}`,
+            name: teacherName,
+            allocations: []
+          };
+          teacherMap.set(teacherKey, teacherObj);
+        }
+
+        if (subjectName) {
+          const subjectKey = subjectName.toLowerCase();
+          const existingAlloc = teacherObj.allocations.find(a => a.subjectName.toLowerCase() === subjectKey);
+          
+          // Conflict Resolution: Prioritize manual entries
+          const isManualSubject = initialManualSubjects.has(`${teacherKey}:${subjectKey}`);
+
+          if (existingAlloc) {
+            if (!isManualSubject) {
+              if (resolvedClassKey !== "unassigned" && !existingAlloc.classes.includes(resolvedClassKey)) {
+                existingAlloc.classes.push(resolvedClassKey);
+              }
+            }
+          } else {
+            teacherObj.allocations.push({
+              subjectName,
+              classes: resolvedClassKey !== "unassigned" ? [resolvedClassKey] : []
+            });
+          }
+        } else {
+          newWarnings.push(`Row ${r + 1}: Missing subject name for ${teacherName}.`);
+        }
+
+      } catch (err: any) {
+        newWarnings.push(`Row ${r + 1}: Failed to parse row: ${err.message}`);
+      }
+    }
+
+    // Update state
+    setTeachers(Array.from(teacherMap.values()));
+    if (newWarnings.length > 0) {
+      setSkippedRowsWarning(newWarnings);
+      setToast({ message: `Ingested spreadsheet. ${newWarnings.length} warning(s) logged.`, type: "warning" });
+    } else {
+      setSkippedRowsWarning([]);
+      setToast({ message: "Spreadsheet ingested and merged successfully!", type: "success" });
+    }
   };
 
   const handleStep3Next = () => {
@@ -536,9 +1127,9 @@ export default function OnboardingWizard() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          schoolName: schoolName.trim() || "Antigravity Academy",
-          academicYear: academicYear.trim() || "2026-2027",
-          adminName: adminName.trim() || "System Admin",
+          schoolName: schoolName.trim(),
+          academicYear: academicYear.trim(),
+          adminName: adminName.trim(),
           schoolSlug: schoolslug,
           gradeFees,
           sectionsList,
@@ -654,161 +1245,392 @@ export default function OnboardingWizard() {
                   Step 1: School Details & Annual Fees
                 </CardTitle>
                 <CardDescription className="text-xs">
-                  Enter your school name and set the annual fee for each grade.
+                  Configure your school details and pricing manually, or import everything via a bulk spreadsheet.
                 </CardDescription>
               </CardHeader>
               <CardContent className="p-4 sm:p-6 space-y-6">
-                
-                {/* Identity Form */}
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-bold text-zinc-800">School Name</label>
-                    <Input
-                      value={schoolName}
-                      onChange={(e) => setSchoolName(e.target.value)}
-                      placeholder="e.g. Antigravity Academy"
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-bold text-zinc-800">Academic Year</label>
-                    <Input
-                      value={academicYear}
-                      onChange={(e) => setAcademicYear(e.target.value)}
-                      placeholder="e.g. 2026-2027"
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-bold text-zinc-800">Admin Owner Name</label>
-                    <Input
-                      value={adminName}
-                      onChange={(e) => setAdminName(e.target.value)}
-                      placeholder="e.g. Ashaz Shaikh"
-                    />
-                  </div>
+                {/* Mode Tab Toggle */}
+                <div className="flex border-b border-zinc-200 mb-6">
+                  <button
+                    type="button"
+                    onClick={() => setStep1Mode("manual")}
+                    className={`flex-1 pb-2 sm:pb-3 text-center text-[10px] sm:text-xs font-bold border-b-2 transition-all flex items-center justify-center gap-1.5 sm:gap-2 cursor-pointer ${
+                      step1Mode === "manual"
+                        ? "border-[#064e3b] text-[#064e3b]"
+                        : "border-transparent text-zinc-400 hover:text-zinc-650"
+                    }`}
+                  >
+                    ✍️ Configure Manually
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setStep1Mode("master_upload")}
+                    className={`flex-1 pb-2 sm:pb-3 text-center text-[10px] sm:text-xs font-bold border-b-2 transition-all flex items-center justify-center gap-1.5 sm:gap-2 cursor-pointer ${
+                      step1Mode === "master_upload"
+                        ? "border-[#064e3b] text-[#064e3b]"
+                        : "border-transparent text-zinc-400 hover:text-zinc-650"
+                    }`}
+                  >
+                    🚀 Bulk Import
+                  </button>
                 </div>
 
-                {/* Grade Pricing Matrix with Add/Remove options */}
-                <div className="border-t border-zinc-150 pt-4 space-y-4">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                    <div>
-                      <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider block">
-                        Annual Fees per Grade
-                      </span>
-                      <p className="text-[11px] text-zinc-400 mt-0.5">
-                        Set the yearly fee for each grade. Enter numbers only.
-                      </p>
+                {step1Mode === "manual" ? (
+                  <div className="space-y-6">
+                    {/* Identity Form */}
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-bold text-zinc-800">School Name</label>
+                        <Input
+                          value={schoolName}
+                          onChange={(e) => setSchoolName(e.target.value)}
+                          placeholder="e.g. Antigravity Academy"
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-bold text-zinc-800">Academic Year</label>
+                        <Input
+                          value={academicYear}
+                          onChange={(e) => setAcademicYear(e.target.value)}
+                          placeholder="e.g. 2026-2027"
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-bold text-zinc-800">Admin Owner Name</label>
+                        <Input
+                          value={adminName}
+                          onChange={(e) => setAdminName(e.target.value)}
+                          placeholder="e.g. Ashaz Shaikh"
+                        />
+                      </div>
                     </div>
 
-                    {/* Add Custom Grade Panel Inline */}
-                    <div className="flex items-center gap-2 bg-zinc-50 p-2 rounded-xl border border-zinc-200 w-full sm:w-auto">
-                      <Input
-                        value={newGradeName}
-                        onChange={(e) => setNewGradeName(e.target.value)}
-                        placeholder="Grade 11"
-                        className="h-8 text-xs max-w-[90px]"
-                      />
-                      <Input
-                        value={newGradeFee}
-                        onChange={(e) => setNewGradeFee(e.target.value)}
-                        placeholder="Fee"
-                        className="h-8 text-xs max-w-[80px]"
-                      />
-                      <Button
-                        type="button"
-                        onClick={handleAddGrade}
-                        size="sm"
-                        className="h-8 px-2.5 bg-[#064e3b] hover:bg-[#0f766e] text-white flex items-center gap-1"
-                      >
-                        <Plus className="w-3.5 h-3.5" /> Add
-                      </Button>
-                    </div>
-                  </div>
+                    {/* Grade Pricing Matrix with Add/Remove options */}
+                    <div className="border-t border-zinc-150 pt-4 space-y-4">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                        <div>
+                          <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider block">
+                            Annual Fees per Grade
+                          </span>
+                          <p className="text-[11px] text-zinc-450 mt-0.5">
+                            Set the yearly fee for each grade. Enter numbers only.
+                          </p>
+                        </div>
 
-                  <div className="overflow-x-auto border border-zinc-200 rounded-xl bg-white">
-                    <table className="min-w-full divide-y divide-zinc-200 text-left text-xs">
-                      <thead className="bg-zinc-50/70 text-zinc-500 font-bold uppercase tracking-wider">
-                        <tr>
-                          <th className="px-4 py-3">Grade Level</th>
-                          <th className="px-4 py-3">Base Tuition (₹)</th>
-                          <th className="px-4 py-3">Extra Charge (₹)</th>
-                          <th className="px-4 py-3">Discount (%)</th>
-                          <th className="px-4 py-3 text-center">Actions</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-zinc-200 text-zinc-800">
-                        {gradeFees.map((gf, index) => {
-                          const hasFeeError = !!feeErrors[gf.grade];
-                          const hasExtraError = !!extraErrors[gf.grade];
-                          const hasDiscountError = !!discountErrors[gf.grade];
+                        {/* Add Custom Grade Panel Inline */}
+                        <div className="flex items-center gap-1.5 sm:gap-2 bg-zinc-50 p-2 rounded-xl border border-zinc-200 w-full sm:w-auto justify-between sm:justify-start">
+                          <Input
+                            value={newGradeName}
+                            onChange={(e) => setNewGradeName(e.target.value)}
+                            placeholder="Grade 11"
+                            className="h-8 text-xs max-w-[90px] flex-1 sm:flex-none"
+                          />
+                          <Input
+                            value={newGradeFee}
+                            onChange={(e) => setNewGradeFee(e.target.value)}
+                            placeholder="Fee"
+                            className="h-8 text-xs max-w-[80px] flex-1 sm:flex-none"
+                          />
+                          <Button
+                            type="button"
+                            onClick={handleAddGrade}
+                            size="sm"
+                            className="h-8 px-2.5 bg-[#064e3b] hover:bg-[#0f766e] text-white flex items-center gap-1 cursor-pointer shrink-0"
+                          >
+                            <Plus className="w-3.5 h-3.5" /> Add
+                          </Button>
+                        </div>
+                      </div>
 
-                          return (
-                            <tr key={gf.grade} className="hover:bg-zinc-50/20">
-                              <td className="px-4 py-2.5 font-bold text-zinc-900">{gf.grade}</td>
-                              <td className="px-4 py-2.5">
-                                <div className="relative">
-                                  <span className="absolute left-2 top-1/2 -translate-y-1/2 text-zinc-400 font-semibold">₹</span>
-                                  <Input
-                                    type="text"
-                                    value={gf.fee === 0 ? "" : gf.fee}
-                                    onChange={(e) => handleFeeChange(index, e.target.value)}
-                                    className={`pl-5 h-8 text-xs font-semibold max-w-[120px] ${
-                                      hasFeeError ? "border-[#EF4444] focus:border-[#EF4444] focus:ring-[#EF4444]/20 bg-red-50" : ""
-                                    }`}
-                                    placeholder="0"
-                                  />
-                                </div>
-                              </td>
-                              <td className="px-4 py-2.5">
-                                <div className="relative">
-                                  <span className="absolute left-2 top-1/2 -translate-y-1/2 text-zinc-400 font-semibold">₹</span>
-                                  <Input
-                                    type="text"
-                                    value={gf.extraCharge === 0 ? "" : gf.extraCharge}
-                                    onChange={(e) => handleExtraChange(index, e.target.value)}
-                                    className={`pl-5 h-8 text-xs font-semibold max-w-[120px] ${
-                                      hasExtraError ? "border-[#EF4444] focus:border-[#EF4444] focus:ring-[#EF4444]/20 bg-red-50" : ""
-                                    }`}
-                                    placeholder="0"
-                                  />
-                                </div>
-                              </td>
-                              <td className="px-4 py-2.5">
-                                <div className="relative flex items-center max-w-[80px]">
-                                  <Input
-                                    type="text"
-                                    value={gf.discount === 0 ? "" : gf.discount}
-                                    onChange={(e) => handleDiscountChange(index, e.target.value)}
-                                    className={`h-8 text-xs font-semibold w-full pr-5 ${
-                                      hasDiscountError ? "border-[#EF4444] focus:border-[#EF4444] focus:ring-[#EF4444]/20 bg-red-50" : ""
-                                    }`}
-                                    placeholder="0"
-                                  />
-                                  <span className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-400 font-semibold">%</span>
-                                </div>
-                              </td>
-                              <td className="px-4 py-2.5 text-center">
-                                <button
-                                  type="button"
-                                  onClick={() => handleRemoveGrade(gf.grade)}
-                                  className="p-1.5 rounded-lg border border-zinc-200 hover:bg-red-50 hover:text-red-650 text-zinc-400 transition-colors cursor-pointer"
-                                  title="Remove Grade"
-                                >
-                                  <Trash className="w-3.5 h-3.5 mx-auto" />
-                                </button>
-                              </td>
+                      <div className="overflow-x-auto border border-zinc-200 rounded-xl bg-white">
+                        <table className="min-w-full divide-y divide-zinc-200 text-left text-xs">
+                          <thead className="bg-zinc-50/70 text-zinc-500 font-bold uppercase tracking-wider">
+                            <tr>
+                              <th className="px-4 py-3">Grade Level</th>
+                              <th className="px-4 py-3">Base Tuition (₹)</th>
+                              <th className="px-4 py-3">Extra Charge (₹)</th>
+                              <th className="px-4 py-3">Discount (%)</th>
+                              <th className="px-4 py-3 text-center">Actions</th>
                             </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
+                          </thead>
+                          <tbody className="divide-y divide-zinc-200 text-zinc-800">
+                            {gradeFees.map((gf, index) => {
+                              const hasFeeError = !!feeErrors[gf.grade];
+                              const hasExtraError = !!extraErrors[gf.grade];
+                              const hasDiscountError = !!discountErrors[gf.grade];
+
+                              return (
+                                <tr key={gf.grade} className="hover:bg-zinc-50/20">
+                                  <td className="px-4 py-2.5 font-bold text-zinc-900">{gf.grade}</td>
+                                  <td className="px-4 py-2.5">
+                                    <div className="relative">
+                                      <span className="absolute left-2 top-1/2 -translate-y-1/2 text-zinc-400 font-semibold">₹</span>
+                                      <Input
+                                        type="text"
+                                        value={gf.fee === 0 ? "" : gf.fee}
+                                        onChange={(e) => handleFeeChange(index, e.target.value)}
+                                        className={`pl-5 h-8 text-xs font-semibold max-w-[120px] ${
+                                          hasFeeError ? "border-[#EF4444] focus:border-[#EF4444] focus:ring-[#EF4444]/20 bg-red-50" : ""
+                                        }`}
+                                        placeholder="0"
+                                      />
+                                    </div>
+                                  </td>
+                                  <td className="px-4 py-2.5">
+                                    <div className="relative">
+                                      <span className="absolute left-2 top-1/2 -translate-y-1/2 text-zinc-400 font-semibold">₹</span>
+                                      <Input
+                                        type="text"
+                                        value={gf.extraCharge === 0 ? "" : gf.extraCharge}
+                                        onChange={(e) => handleExtraChange(index, e.target.value)}
+                                        className={`pl-5 h-8 text-xs font-semibold max-w-[120px] ${
+                                          hasExtraError ? "border-[#EF4444] focus:border-[#EF4444] focus:ring-[#EF4444]/20 bg-red-50" : ""
+                                        }`}
+                                        placeholder="0"
+                                      />
+                                    </div>
+                                  </td>
+                                  <td className="px-4 py-2.5">
+                                    <div className="relative flex items-center max-w-[80px]">
+                                      <Input
+                                        type="text"
+                                        value={gf.discount === 0 ? "" : gf.discount}
+                                        onChange={(e) => handleDiscountChange(index, e.target.value)}
+                                        className={`h-8 text-xs font-semibold w-full pr-5 ${
+                                          hasDiscountError ? "border-[#EF4444] focus:border-[#EF4444] focus:ring-[#EF4444]/20 bg-red-50" : ""
+                                        }`}
+                                        placeholder="0"
+                                      />
+                                      <span className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-400 font-semibold">%</span>
+                                    </div>
+                                  </td>
+                                  <td className="px-4 py-2.5 text-center">
+                                    <button
+                                      type="button"
+                                      onClick={() => handleRemoveGrade(gf.grade)}
+                                      className="p-1.5 rounded-lg border border-zinc-200 hover:bg-red-50 hover:text-red-650 text-zinc-400 transition-colors cursor-pointer"
+                                      title="Remove Grade"
+                                    >
+                                      <Trash className="w-3.5 h-3.5 mx-auto" />
+                                    </button>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
                   </div>
-                </div>
+                ) : (
+                  <div className="space-y-6">
+                    {/* Interactive Correction Form for Missing Details */}
+                    {missingFields && (
+                      <Card className="border-amber-200 bg-amber-50/20 shadow-xs rounded-xl overflow-hidden animate-fade-in">
+                        <CardHeader className="p-4 bg-amber-50 border-b border-amber-200">
+                          <CardTitle className="text-xs sm:text-sm font-semibold uppercase tracking-wider text-amber-800 flex items-center gap-1.5">
+                            <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0" />
+                            Resolve Missing Details
+                          </CardTitle>
+                          <CardDescription className="text-xs text-amber-700 font-medium">
+                            Please provide the missing details below to successfully ingest your master data:
+                          </CardDescription>
+                        </CardHeader>
+                        <CardContent className="p-4 space-y-4">
+                          {/* School Details */}
+                          {(missingFields.schoolName || missingFields.academicYear || missingFields.adminName) && (
+                            <div className="space-y-3">
+                              <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">
+                                School Details
+                              </span>
+                              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                {missingFields.schoolName && (
+                                  <div className="space-y-1">
+                                    <label className="text-[10px] font-bold text-zinc-700">School Name</label>
+                                    <Input
+                                      value={missingFieldsValues.schoolName || ""}
+                                      onChange={(e) => setMissingFieldsValues(prev => ({ ...prev, schoolName: e.target.value }))}
+                                      placeholder="e.g. Antigravity Academy"
+                                      className="h-9 text-xs bg-white"
+                                    />
+                                  </div>
+                                )}
+                                {missingFields.academicYear && (
+                                  <div className="space-y-1">
+                                    <label className="text-[10px] font-bold text-zinc-700">Academic Year</label>
+                                    <Input
+                                      value={missingFieldsValues.academicYear || ""}
+                                      onChange={(e) => setMissingFieldsValues(prev => ({ ...prev, academicYear: e.target.value }))}
+                                      placeholder="e.g. 2026-2027"
+                                      className="h-9 text-xs bg-white"
+                                    />
+                                  </div>
+                                )}
+                                {missingFields.adminName && (
+                                  <div className="space-y-1">
+                                    <label className="text-[10px] font-bold text-zinc-700">Admin Owner Name</label>
+                                    <Input
+                                      value={missingFieldsValues.adminName || ""}
+                                      onChange={(e) => setMissingFieldsValues(prev => ({ ...prev, adminName: e.target.value }))}
+                                      placeholder="e.g. Ashaz Shaikh"
+                                      className="h-9 text-xs bg-white"
+                                    />
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Grade Fees */}
+                          {missingFields.gradesWithMissingFees.length > 0 && (
+                            <div className="space-y-3 pt-3 border-t border-zinc-150">
+                              <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">
+                                Missing Grade Base Fees (₹)
+                              </span>
+                              <p className="text-[10px] text-zinc-500">
+                                Enter the annual tuition fees for discovered grade levels:
+                              </p>
+                              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                                {missingFields.gradesWithMissingFees.map((grade) => (
+                                  <div key={grade} className="space-y-1">
+                                    <label className="text-[10px] font-bold text-zinc-705">{grade}</label>
+                                    <Input
+                                      type="text"
+                                      placeholder="Tuition Fee"
+                                      value={missingFieldsValues[`fee_${grade}`] || ""}
+                                      onChange={(e) => setMissingFieldsValues(prev => ({ ...prev, [`fee_${grade}`]: e.target.value }))}
+                                      className="h-8 text-xs bg-white"
+                                    />
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Student Parent Names */}
+                          {missingFields.studentsWithMissingParents.length > 0 && (
+                            <div className="space-y-3 pt-3 border-t border-zinc-150">
+                              <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">
+                                Missing Parent Details
+                              </span>
+                              <p className="text-[10px] text-zinc-500">
+                                Provide parent names for students with missing parent fields in the spreadsheet:
+                              </p>
+                              <div className="max-h-48 overflow-y-auto space-y-2.5 border border-zinc-200 rounded-xl p-3 bg-white">
+                                {missingFields.studentsWithMissingParents.map((item) => (
+                                  <div key={item.rowIndex} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs border-b border-zinc-100 pb-2 last:border-0 last:pb-0">
+                                    <span className="font-bold text-zinc-700 w-full sm:w-1/3 truncate">{item.studentName} <span className="text-[9px] text-zinc-400 font-normal">(Row {item.rowIndex})</span></span>
+                                    <Input
+                                      value={missingFieldsValues[`parent_${item.rowIndex}`] || ""}
+                                      onChange={(e) => setMissingFieldsValues(prev => ({ ...prev, [`parent_${item.rowIndex}`]: e.target.value }))}
+                                      placeholder="Parent Name"
+                                      className="h-8 text-xs flex-1 bg-white"
+                                    />
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Apply Resolution */}
+                          <div className="pt-4 border-t border-zinc-150 flex flex-col sm:flex-row justify-end gap-2">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              onClick={() => setMissingFields(null)}
+                              className="text-xs h-9 w-full sm:w-auto cursor-pointer"
+                            >
+                              Cancel
+                            </Button>
+                            <Button
+                              type="button"
+                              onClick={applyMasterDataResolution}
+                              className="bg-[#064e3b] hover:bg-[#0f766e] text-white text-xs font-semibold h-9 px-4 cursor-pointer w-full sm:w-auto"
+                            >
+                              Save & Apply Master Data
+                            </Button>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    )}
+
+                    {/* Master spreadsheet upload dropzone & Paste */}
+                    {!missingFields && (
+                      <div className="space-y-6">
+                        <div className="grid grid-cols-1 md:grid-cols-12 gap-5 items-stretch">
+                          <div className="md:col-span-4 flex flex-col justify-center items-center border border-dashed border-zinc-300 rounded-xl p-6 sm:p-8 bg-zinc-50/20 text-center relative hover:border-[#064e3b] transition-colors">
+                            <Upload className="w-10 h-10 text-zinc-400 mb-3" />
+                            <span className="text-xs font-bold text-zinc-700 block">Upload spreadsheet (.xlsx, .xls, .csv)</span>
+                            <span className="text-[10px] text-zinc-400 mt-1.5 block">Drag and drop master file here, or click to browse</span>
+                            <input
+                              type="file"
+                              accept=".xlsx, .xls, .csv"
+                              onChange={handleMasterFileUpload}
+                              className="absolute inset-0 opacity-0 cursor-pointer"
+                            />
+                          </div>
+
+                          <div className="md:col-span-8 space-y-1.5">
+                            <label className="text-xs font-bold text-zinc-800 flex items-center gap-1">
+                              <Clipboard className="w-4 h-4 text-emerald-800" /> Paste Master Data (Tab or Comma Separated)
+                            </label>
+                            <textarea
+                              rows={6}
+                              value={masterPastedText}
+                              onChange={(e) => setMasterPastedText(e.target.value)}
+                              placeholder="Paste a master table containing student names, class names (e.g. 5B), fees, parents, phone, teacher details..."
+                              className="w-full text-xs font-mono p-3 border border-zinc-200 rounded-xl focus:border-[#064e3b] focus:ring-1 focus:ring-[#064e3b] bg-white outline-none"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="flex justify-end gap-3">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => parseMasterPastedText(masterPastedText)}
+                            className="gap-1.5 border-zinc-300 hover:border-[#064e3b] hover:bg-[#ecfdf5] text-[#064e3b] text-xs h-9 cursor-pointer w-full sm:w-auto justify-center"
+                          >
+                            <FileSpreadsheet className="w-4 h-4" /> Ingest & Analyze Master Data
+                          </Button>
+                        </div>
+
+                        {/* Quick overview of currently staged data if imported */}
+                        {parsedStudents.length > 0 && (
+                          <div className="space-y-3 pt-3 border-t border-zinc-150 animate-fade-in">
+                            <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider block">
+                              Staged Master Data Overview
+                            </span>
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 bg-zinc-50/50 p-4 rounded-xl border border-zinc-200 text-xs">
+                              <div>
+                                <span className="text-zinc-400 block text-[9px] uppercase font-bold">School Name</span>
+                                <span className="font-bold text-zinc-700">{schoolName || "(Not Configured)"}</span>
+                              </div>
+                              <div>
+                                <span className="text-zinc-400 block text-[9px] uppercase font-bold">Grades Discovered</span>
+                                <span className="font-bold text-zinc-700">{gradeFees.length} grade level(s)</span>
+                              </div>
+                              <div>
+                                <span className="text-zinc-400 block text-[9px] uppercase font-bold">Teachers Found</span>
+                                <span className="font-bold text-zinc-700">{teachers.length} teacher(s)</span>
+                              </div>
+                              <div>
+                                <span className="text-zinc-400 block text-[9px] uppercase font-bold">Students Roster</span>
+                                <span className="font-bold text-zinc-700">{parsedStudents.length} student(s)</span>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
               </CardContent>
-              <CardFooter className="p-4 sm:p-6 border-t border-zinc-150 bg-zinc-50/50 justify-between items-center">
-                <Link href="/login" className="text-xs font-semibold text-zinc-500 hover:text-zinc-850 flex items-center gap-1">
+              <CardFooter className="p-4 sm:p-6 border-t border-zinc-150 bg-zinc-50/50 flex flex-col sm:flex-row gap-3.5 items-center sm:justify-between">
+                <Link href="/login" className="text-xs font-semibold text-zinc-500 hover:text-zinc-850 flex items-center gap-1 order-2 sm:order-1">
                   <ArrowLeft className="w-3.5 h-3.5" /> Back to Login
                 </Link>
-                <Button onClick={handleStep1Next} className="gap-1.5 bg-[#064e3b] hover:bg-[#0f766e] active:bg-[#115e59] w-full sm:w-auto">
+                <Button onClick={handleStep1Next} className="gap-1.5 bg-[#064e3b] hover:bg-[#0f766e] active:bg-[#115e59] w-full sm:w-auto order-1 sm:order-2 justify-center cursor-pointer">
                   Next: Section Matrix <ArrowRight className="w-3.5 h-3.5" />
                 </Button>
               </CardFooter>
@@ -975,217 +1797,274 @@ export default function OnboardingWizard() {
             <div>
               <CardHeader className="p-4 sm:p-6 border-b border-zinc-150">
                 <CardTitle className="text-xs sm:text-sm font-semibold uppercase tracking-wider text-zinc-500">
-                  Step 3: Global Faculty Bulk Spreadsheet Grid
+                  Step 3: Global Faculty Roster & Allocations
                 </CardTitle>
                 <CardDescription className="text-xs">
-                  Onboard teachers and allocate them across classroom sections. Emails are generated automatically.
+                  Onboard teachers, define subjects, and allocate class divisions.
                 </CardDescription>
               </CardHeader>
               <CardContent className="p-4 sm:p-6 space-y-6">
-                
-                {/* Faculty Input Adder with Assign to Class dropdown */}
-                <div className="grid grid-cols-1 sm:grid-cols-12 gap-4 items-end border border-zinc-200 rounded-xl p-4 bg-zinc-50/20">
-                  <div className="sm:col-span-6 space-y-1.5">
-                    <label className="text-xs font-bold text-zinc-800">Teacher Full Name</label>
-                    <Input
-                      value={newTeacherName}
-                      onChange={(e) => setNewTeacherName(e.target.value)}
-                      placeholder="e.g. Mrs. Susan Smith"
-                    />
-                  </div>
-
-                  {/* Assign to Class Dropdown inside Adder */}
-                  <div className="sm:col-span-4 space-y-1.5 relative teacher-dropdown-container">
-                    <label className="text-xs font-bold text-zinc-800">Assign to Class</label>
-                    <button
-                      type="button"
-                      onClick={() => setOpenAdderDropdown(!openAdderDropdown)}
-                      className="w-full text-left bg-white border border-zinc-200 rounded-lg p-2.5 flex items-center justify-between text-xs font-semibold hover:border-zinc-350 cursor-pointer h-10"
-                    >
-                      <span className="truncate text-zinc-650">
-                        {newTeacherClasses.length === 0 
-                          ? "Select classrooms..." 
-                          : newTeacherClasses.map(c => c.replace("Grade ", "")).join(", ")
-                        }
-                      </span>
-                      <span className="text-[10px] text-zinc-400">▼</span>
-                    </button>
-
-                    {openAdderDropdown && (
-                      <div className="absolute left-0 right-0 mt-1.5 bg-white border border-zinc-200 rounded-xl shadow-lg z-30 max-h-48 overflow-y-auto p-2.5 space-y-1.5 w-full">
-                        <div className="flex items-center justify-between pb-1 border-b border-zinc-100">
-                          <span className="text-[10px] font-bold text-zinc-400 tracking-wider uppercase">Select Classrooms</span>
-                          <Button
-                            size="sm"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setOpenAdderDropdown(false);
-                            }}
-                            className="text-[9px] h-5 py-0.5 px-2 bg-[#064e3b]"
-                          >
-                            Done
-                          </Button>
-                        </div>
-                        {preparedClasses.length === 0 ? (
-                          <div className="text-[11px] text-zinc-400 p-1 font-semibold">No classes generated yet in Step 2</div>
-                        ) : (
-                          preparedClasses.map((cls) => {
-                            const classKey = `${cls.gradeKey}-${cls.section}`;
-                            const isChecked = newTeacherClasses.includes(classKey);
-                            return (
-                              <label
-                                key={classKey}
-                                className="flex items-center gap-2 text-[11px] text-zinc-700 hover:bg-zinc-50 p-1.5 rounded cursor-pointer font-medium"
-                              >
-                                <input
-                                  type="checkbox"
-                                  checked={isChecked}
-                                  onChange={() => {
-                                    const updated = isChecked
-                                      ? newTeacherClasses.filter((c) => c !== classKey)
-                                      : [...newTeacherClasses, classKey];
-                                    setNewTeacherClasses(updated);
-                                  }}
-                                  className="w-4 h-4 text-[#064e3b] focus:ring-[#064e3b] border-zinc-300 rounded"
-                                />
-                                {cls.gradeKey.replace("Grade ", "")}-{cls.section}
-                              </label>
-                            );
-                          })
-                        )}
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="sm:col-span-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={handleAddTeacher}
-                      className="w-full gap-1 border-zinc-300 hover:border-emerald-600 hover:bg-[#ecfdf5] text-[#064e3b] h-10"
-                    >
-                      <Plus className="w-4 h-4" /> Add Row
-                    </Button>
-                  </div>
+                {/* Tab Toggle for Step 3 Mode */}
+                <div className="flex border-b border-zinc-200">
+                  <button
+                    type="button"
+                    onClick={() => setStep3Mode("manual")}
+                    className={`flex-1 pb-3 text-center text-xs font-bold border-b-2 transition-all flex items-center justify-center gap-2 cursor-pointer ${
+                      step3Mode === "manual"
+                        ? "border-[#064e3b] text-[#064e3b]"
+                        : "border-transparent text-zinc-400 hover:text-zinc-650"
+                    }`}
+                  >
+                    ✍️ Add Manually
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setStep3Mode("upload")}
+                    className={`flex-1 pb-3 text-center text-xs font-bold border-b-2 transition-all flex items-center justify-center gap-2 cursor-pointer ${
+                      step3Mode === "upload"
+                        ? "border-[#064e3b] text-[#064e3b]"
+                        : "border-transparent text-zinc-400 hover:text-zinc-650"
+                    }`}
+                  >
+                    📄 Upload File
+                  </button>
                 </div>
 
-                {/* Spreadsheet Table with Horizontal Scroll wrapper */}
-                <div className="space-y-2.5">
-                  <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider block">
-                    Interactive Faculty Assignment Spreadsheet
-                  </span>
-                  
-                  <div className="overflow-x-auto border border-zinc-200 rounded-xl bg-white">
-                    <div className="min-w-[600px] divide-y divide-zinc-200">
-                      {/* Headers */}
-                      <div className="grid grid-cols-12 p-3 bg-zinc-50/70 text-xs font-bold text-zinc-500">
-                        <div className="col-span-5">Teacher Full Name</div>
-                        <div className="col-span-6 pl-2">Assigned Classrooms</div>
-                        <div className="col-span-1 text-center">Delete</div>
+                {step3Mode === "manual" ? (
+                  <div className="space-y-6">
+                    {/* Quick Add Teacher Bar */}
+                    <div className="flex flex-col sm:flex-row gap-3 items-end border border-zinc-200 rounded-xl p-4 bg-zinc-50/20">
+                      <div className="flex-1 w-full space-y-1.5">
+                        <label className="text-xs font-bold text-zinc-800">Teacher Full Name</label>
+                        <Input
+                          value={newTeacherName}
+                          onChange={(e) => setNewTeacherName(e.target.value)}
+                          placeholder="e.g. Mrs. Susan Smith"
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              handleAddTeacher();
+                            }
+                          }}
+                        />
                       </div>
+                      <Button
+                        type="button"
+                        onClick={handleAddTeacher}
+                        className="bg-[#064e3b] hover:bg-[#0f766e] text-white font-semibold h-10 px-5 flex items-center gap-1.5 w-full sm:w-auto"
+                      >
+                        <Plus className="w-4 h-4" /> Add Teacher
+                      </Button>
+                    </div>
 
+                    {/* Teachers Card List */}
+                    <div className="space-y-4">
                       {teachers.length === 0 ? (
-                        <div className="text-center p-8 text-zinc-400 text-xs font-medium">
-                          No teachers added to the roster yet. Add a row above.
+                        <div className="text-center p-8 text-zinc-400 text-xs font-medium border border-zinc-200 rounded-xl bg-white">
+                          No teachers added to the roster yet. Add a teacher above.
                         </div>
                       ) : (
                         teachers.map((teacher) => (
-                          <div key={teacher.id} className="grid grid-cols-12 p-3 items-start text-xs text-zinc-800 hover:bg-zinc-50/20 relative">
-                            {/* Teacher Name Input */}
-                            <div className="col-span-5 font-semibold text-zinc-900 pr-2 pt-2">
-                              <input
-                                type="text"
-                                value={teacher.name}
-                                onChange={(e) => {
-                                  const updatedName = e.target.value;
-                                  setTeachers(teachers.map(t => t.id === teacher.id ? { ...t, name: updatedName } : t));
-                                }}
-                                className="w-full bg-transparent border-0 focus:ring-0 font-semibold text-zinc-800 p-1.5 rounded hover:bg-zinc-150 outline-none"
-                              />
-                            </div>
-
-                            {/* Assigned Classrooms Flow (Relative layout to prevent layout clipping) */}
-                            <div className="col-span-6 pl-2 pt-2 relative teacher-dropdown-container">
-                              <button
+                          <Card key={teacher.id} className="border border-zinc-200 shadow-xs rounded-xl overflow-hidden bg-white">
+                            <CardHeader className="p-3 bg-zinc-50/30 border-b border-zinc-150 flex flex-row items-center justify-between gap-4">
+                              <div className="flex-1">
+                                <input
+                                  type="text"
+                                  value={teacher.name}
+                                  onChange={(e) => handleUpdateTeacherName(teacher.id, e.target.value)}
+                                  className="w-full bg-transparent border-b border-transparent hover:border-zinc-300 focus:border-[#064e3b] font-bold text-zinc-800 p-1 outline-none text-xs"
+                                  placeholder="Teacher Name"
+                                />
+                              </div>
+                              <Button
                                 type="button"
-                                onClick={() => setOpenTeacherDropdownId(openTeacherDropdownId === teacher.id ? null : teacher.id)}
-                                className="w-full text-left bg-zinc-50 border border-zinc-200 rounded-lg p-2 flex items-center justify-between text-xs font-semibold hover:border-zinc-350 cursor-pointer"
-                              >
-                                <span className="truncate max-w-[240px]">
-                                  {teacher.assignedClasses.length === 0 
-                                    ? "0 classrooms assigned" 
-                                    : teacher.assignedClasses.map(c => c.replace("Grade ", "")).join(", ")
-                                  }
-                                </span>
-                                <span className="text-[10px] text-zinc-400">▼</span>
-                              </button>
-
-                              {/* Relative flow placement prevents overflow-hidden clipping inside tables */}
-                              {openTeacherDropdownId === teacher.id && (
-                                <div className="relative w-full mt-2 bg-white border border-zinc-200 rounded-xl shadow-sm z-20 max-h-48 overflow-y-auto p-2.5 space-y-1.5">
-                                  <div className="flex items-center justify-between pb-1 border-b border-zinc-100">
-                                    <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">
-                                      Select Classrooms
-                                    </span>
-                                    <Button
-                                      size="sm"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        setOpenTeacherDropdownId(null);
-                                      }}
-                                      className="text-[9px] h-5 py-0.5 px-2 bg-[#064e3b]"
-                                    >
-                                      Done
-                                    </Button>
-                                  </div>
-                                  {preparedClasses.length === 0 ? (
-                                    <div className="text-[11px] text-zinc-400 p-1">No classes available</div>
-                                  ) : (
-                                    preparedClasses.map((cls) => {
-                                      const classKey = `${cls.gradeKey}-${cls.section}`;
-                                      const isChecked = teacher.assignedClasses.includes(classKey);
-                                      return (
-                                        <label
-                                          key={classKey}
-                                          className="flex items-center gap-2 text-[11px] text-zinc-700 hover:bg-zinc-50 p-1.5 rounded cursor-pointer font-medium"
-                                        >
-                                          <input
-                                            type="checkbox"
-                                            checked={isChecked}
-                                            onChange={() => handleToggleTeacherClass(teacher.id, classKey)}
-                                            className="w-4 h-4 text-[#064e3b] focus:ring-[#064e3b] border-zinc-300 rounded"
-                                          />
-                                          {cls.gradeKey.replace("Grade ", "")}-{cls.section} (₹{cls.baseFee / 1000}k)
-                                        </label>
-                                      );
-                                    })
-                                  )}
-                                </div>
-                              )}
-                            </div>
-
-                            {/* Row Delete Button */}
-                            <div className="col-span-1 text-center pt-2">
-                              <button
-                                type="button"
+                                variant="outline"
+                                size="sm"
                                 onClick={() => handleRemoveTeacher(teacher.id)}
-                                className="text-red-500 hover:text-red-800 p-1.5 cursor-pointer transition-colors"
+                                className="text-red-500 hover:text-red-800 hover:bg-red-50 border-zinc-200 h-8"
                               >
-                                <Trash2 className="w-4 h-4 mx-auto" />
-                              </button>
-                            </div>
-                          </div>
+                                <Trash2 className="w-3.5 h-3.5 mr-1" /> Delete Teacher
+                              </Button>
+                            </CardHeader>
+                            <CardContent className="p-4 space-y-4">
+                              <div className="space-y-3">
+                                <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">
+                                  Subject Allocations
+                                </span>
+                                
+                                {teacher.allocations.length === 0 ? (
+                                  <div className="text-xs text-zinc-400 italic py-1 pl-1">
+                                    No subjects assigned. Click "+ Add Subject" below.
+                                  </div>
+                                ) : (
+                                  <div className="space-y-3">
+                                    {teacher.allocations.map((alloc, allocIdx) => (
+                                      <div key={allocIdx} className="p-3 border border-zinc-150 rounded-lg bg-zinc-50/20 flex flex-col md:flex-row gap-4 items-start md:items-center relative">
+                                        {/* Subject Input */}
+                                        <div className="w-full md:w-1/4 space-y-1">
+                                          <span className="text-[9px] font-bold text-zinc-400 uppercase">Subject Name</span>
+                                          <Input
+                                            value={alloc.subjectName}
+                                            onChange={(e) => handleUpdateSubjectName(teacher.id, allocIdx, e.target.value)}
+                                            placeholder="e.g. Math"
+                                            className="h-8 text-xs font-semibold bg-white"
+                                          />
+                                        </div>
+                                        
+                                        {/* Tokenized Class Picker */}
+                                        <div className="flex-1 space-y-1 w-full">
+                                          <span className="text-[9px] font-bold text-zinc-400 uppercase">Assign Classrooms</span>
+                                          <div className="flex flex-wrap gap-1.5 p-2 bg-white border border-zinc-200 rounded-lg min-h-8">
+                                            {preparedClasses.length === 0 ? (
+                                              <span className="text-[10px] text-zinc-400 font-medium italic">No classes available from Step 2</span>
+                                            ) : (
+                                              preparedClasses.map((cls) => {
+                                                const classKey = `${cls.gradeKey}-${cls.section}`;
+                                                const isSelected = alloc.classes.includes(classKey);
+                                                return (
+                                                  <button
+                                                    key={classKey}
+                                                    type="button"
+                                                    onClick={() => handleToggleAllocationClass(teacher.id, allocIdx, classKey)}
+                                                    className={`px-2 py-0.5 rounded text-[10px] font-bold border transition-colors cursor-pointer ${
+                                                      isSelected
+                                                        ? "bg-[#064e3b] border-[#064e3b] text-white shadow-xs"
+                                                        : "bg-zinc-50 border-zinc-200 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-805"
+                                                    }`}
+                                                  >
+                                                    {cls.gradeKey.replace("Grade ", "")}-{cls.section}
+                                                  </button>
+                                                );
+                                              })
+                                            )}
+                                          </div>
+                                        </div>
+
+                                        {/* Delete allocation button */}
+                                        <button
+                                          type="button"
+                                          onClick={() => handleRemoveAllocation(teacher.id, allocIdx)}
+                                          className="absolute top-2 right-2 md:relative md:top-auto md:right-auto p-1.5 rounded-lg border border-zinc-200 hover:bg-red-50 hover:text-red-650 text-zinc-400 transition-colors cursor-pointer"
+                                          title="Remove Subject"
+                                        >
+                                          <Trash className="w-3.5 h-3.5" />
+                                        </button>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                              
+                              <div className="pt-2 border-t border-zinc-100 flex justify-start">
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => handleAddAllocation(teacher.id)}
+                                  className="text-xs font-semibold text-[#064e3b] border-emerald-250 hover:bg-emerald-50 h-8 cursor-pointer"
+                                >
+                                  <Plus className="w-3.5 h-3.5 mr-1" />
+                                  {teacher.allocations.length === 0 ? "Add Subject" : "Add Another Subject"}
+                                </Button>
+                              </div>
+                            </CardContent>
+                          </Card>
                         ))
                       )}
                     </div>
                   </div>
-                </div>
+                ) : (
+                  <div className="space-y-6">
+                    {/* Inline Warning Banner for Skipped/Unresolved Rows */}
+                    {skippedRowsWarning.length > 0 && (
+                      <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 text-xs space-y-1.5 animate-fade-in">
+                        <div className="font-bold flex items-center gap-1.5">
+                          <AlertTriangle className="w-4 h-4 shrink-0 text-amber-600" />
+                          <span>Warnings: Some classrooms could not be resolved automatically</span>
+                        </div>
+                        <div className="max-h-28 overflow-y-auto pl-5 list-disc space-y-1 font-mono text-[10px]">
+                          {skippedRowsWarning.map((warning, idx) => (
+                            <div key={idx}>{warning}</div>
+                          ))}
+                        </div>
+                        <p className="text-[10px] text-zinc-500 mt-1 font-sans">
+                          * Unresolved classrooms were set as "unassigned". You can switch to manual mode to review and assign them.
+                        </p>
+                      </div>
+                    )}
+
+                    {/* File Drop/Upload Area */}
+                    <div className="flex flex-col justify-center items-center border border-dashed border-zinc-300 rounded-xl p-8 bg-zinc-50/30 text-center relative hover:border-[#064e3b] transition-colors">
+                      <Upload className="w-10 h-10 text-zinc-400 mb-3" />
+                      <span className="text-xs font-bold text-zinc-700 block">Upload spreadsheet (.xlsx, .xls, .csv)</span>
+                      <span className="text-[10px] text-zinc-400 mt-1.5 block">Drag and drop file here, or click to browse</span>
+                      <input
+                        type="file"
+                        accept=".xlsx, .xls, .csv"
+                        onChange={handleFileUpload}
+                        className="absolute inset-0 opacity-0 cursor-pointer"
+                      />
+                    </div>
+
+                    {/* Quick Preview of Parsed Teachers */}
+                    {teachers.length > 0 && (
+                      <div className="space-y-3">
+                        <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider block">
+                          Current Faculty Matrix Preview ({teachers.length} Staged Teachers)
+                        </span>
+                        <div className="border border-zinc-200 rounded-xl overflow-x-auto bg-white max-h-60">
+                          <table className="min-w-full divide-y divide-zinc-200 text-left text-xs">
+                            <thead className="bg-zinc-50/70 text-zinc-500 font-bold uppercase tracking-wider">
+                              <tr>
+                                <th className="px-4 py-3">Teacher</th>
+                                <th className="px-4 py-3">Subject Allocations</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-zinc-200 text-zinc-800">
+                              {teachers.map((t, idx) => (
+                                <tr key={t.id || idx} className="hover:bg-zinc-50/10">
+                                  <td className="px-4 py-3 font-bold text-zinc-900">{t.name}</td>
+                                  <td className="px-4 py-3">
+                                    {t.allocations.length === 0 ? (
+                                      <span className="text-zinc-400 italic">No allocations</span>
+                                    ) : (
+                                      <div className="space-y-1.5">
+                                        {t.allocations.map((alloc, aIdx) => (
+                                          <div key={aIdx} className="flex flex-wrap items-center gap-1.5 text-[11px]">
+                                            <span className="font-bold text-zinc-700 bg-zinc-100 px-1.5 py-0.5 rounded">{alloc.subjectName || "Unnamed Subject"}:</span>
+                                            {alloc.classes.length === 0 ? (
+                                              <span className="text-amber-600 bg-amber-50 border border-amber-100 px-1.5 py-0.5 rounded text-[10px] font-bold">unassigned</span>
+                                            ) : (
+                                              alloc.classes.map((cKey) => (
+                                                <span key={cKey} className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                                                  cKey === "unassigned" 
+                                                    ? "text-amber-600 bg-amber-50 border border-amber-100" 
+                                                    : "text-emerald-800 bg-emerald-50 border border-emerald-100"
+                                                }`}>
+                                                  {cKey.replace("Grade ", "")}
+                                                </span>
+                                              ))
+                                            )}
+                                          </div>
+                                        ))}
+                                      </div>
+                                    )}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
               </CardContent>
               <CardFooter className="p-4 sm:p-6 border-t border-zinc-150 bg-zinc-50/50 flex flex-col sm:flex-row justify-between gap-3">
-                <Button variant="outline" onClick={() => setStep(2)} className="gap-1.5 w-full sm:w-auto">
+                <Button variant="outline" onClick={() => setStep(2)} className="gap-1.5 w-full sm:w-auto cursor-pointer">
                   <ArrowLeft className="w-3.5 h-3.5" /> Back
                 </Button>
-                <Button onClick={handleStep3Next} className="gap-1.5 bg-[#064e3b] hover:bg-[#0f766e] active:bg-[#115e59] w-full sm:w-auto">
+                <Button onClick={handleStep3Next} className="gap-1.5 bg-[#064e3b] hover:bg-[#0f766e] active:bg-[#115e59] w-full sm:w-auto cursor-pointer">
                   Next: Add Students <ArrowRight className="w-3.5 h-3.5" />
                 </Button>
               </CardFooter>

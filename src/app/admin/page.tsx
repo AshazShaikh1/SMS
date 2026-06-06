@@ -239,18 +239,44 @@ export default function AdminDashboard() {
           throw new Error(`Failed to establish profile for teacher ${teacher.name}: ${teacherProfileError.message}`);
         }
 
-        // Link Teacher to their assigned classes in database
-        for (const classKey of (teacher.assignedClasses || [])) {
-          const classId = classIdMap.get(classKey);
-          if (classId) {
-            const { error: updateClassError } = await supabase
-              .from("classes")
-              .update({ instructor_id: teacherUserId })
-              .eq("id", classId);
-
-            if (updateClassError) {
-              console.error(`Failed to assign teacher to class ${classKey}:`, updateClassError);
+        // Link Teacher to their assigned subject allocations in new teacher_allocations table
+        const teacherAllocationsToInsert: { school_id: string; teacher_id: string; class_id: string; subject_name: string }[] = [];
+        
+        for (const alloc of (teacher.allocations || [])) {
+          const subjectName = (alloc.subjectName || "").trim();
+          if (!subjectName) continue;
+          
+          for (const classKey of (alloc.classes || [])) {
+            if (classKey === "unassigned") continue;
+            const classId = classIdMap.get(classKey);
+            if (classId) {
+              teacherAllocationsToInsert.push({
+                school_id: activeSchoolId,
+                teacher_id: teacherUserId,
+                class_id: classId,
+                subject_name: subjectName
+              });
             }
+          }
+        }
+
+        if (teacherAllocationsToInsert.length > 0) {
+          const { error: insertAllocationsError } = await supabase
+            .from("teacher_allocations")
+            .insert(teacherAllocationsToInsert);
+
+          if (insertAllocationsError) {
+            console.error(`Failed to bulk insert teacher allocations for ${teacher.name}:`, insertAllocationsError);
+            throw new Error(`Failed to assign subject allocations for teacher ${teacher.name}: ${insertAllocationsError.message}`);
+          }
+        }
+
+        // Compile a clean description of allocations for the roster sheet
+        const allocationDescriptions: string[] = [];
+        for (const alloc of (teacher.allocations || [])) {
+          const cleanClasses = (alloc.classes || []).map((c: string) => c.replace("Grade ", ""));
+          if (cleanClasses.length > 0 && alloc.subjectName) {
+            allocationDescriptions.push(`${alloc.subjectName}: ${cleanClasses.join(", ")}`);
           }
         }
 
@@ -258,7 +284,7 @@ export default function AdminDashboard() {
         roster.push({
           fullName: teacher.name,
           role: "Teacher",
-          assignedClass: teacher.assignedClasses.join(", ").replace(/Grade /g, "") || "None",
+          assignedClass: allocationDescriptions.join(" | ") || "None",
           username: teacherUsername,
           password: teacherPassword
         });
