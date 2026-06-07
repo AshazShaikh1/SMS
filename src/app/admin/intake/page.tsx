@@ -160,7 +160,7 @@ export default function StudentIntake() {
                     </Select>
                   </div>
                 </div>
-                <Button type="submit" variant="outline" className="w-full mt-2 hover:border-emerald-600 hover:bg-emerald-50/20 text-emerald-950 flex items-center justify-center gap-1.5">
+                <Button type="submit" variant="outline" className="w-full mt-2 hover:border-[#1572FE] hover:bg-blue-50/20 text-[#1572FE] flex items-center justify-center gap-1.5">
                   <Plus className="w-4 h-4" /> Add Student to Queue
                 </Button>
               </form>
@@ -191,8 +191,8 @@ export default function StudentIntake() {
                 )}
 
                 {status.type === "success" && (
-                  <div className="p-8 text-center text-emerald-800 text-xs flex flex-col items-center gap-2">
-                    <CheckCircle2 className="w-8 h-8 text-emerald-700" />
+                  <div className="p-8 text-center text-blue-800 text-xs flex flex-col items-center gap-2">
+                    <CheckCircle2 className="w-8 h-8 text-blue-700" />
                     <span className="font-semibold text-sm">{status.message}</span>
                   </div>
                 )}

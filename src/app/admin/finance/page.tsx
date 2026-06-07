@@ -293,7 +293,7 @@ function FinanceLedgerContent() {
                         />
                       </div>
                       <div className="sm:col-span-1 flex items-end">
-                        <Button type="submit" variant="outline" className="w-full p-2 h-[38px] hover:border-emerald-600 hover:bg-emerald-50/20 text-emerald-950">
+                        <Button type="submit" variant="outline" className="w-full p-2 h-[38px] hover:border-[#1572FE] hover:bg-blue-50/20 text-[#1572FE]">
                           <Plus className="w-4.5 h-4.5" />
                         </Button>
                       </div>
@@ -378,7 +378,7 @@ function FinanceLedgerContent() {
             <CardFooter className="p-5 border-t border-zinc-100 bg-zinc-50/50 justify-end gap-3 shrink-0">
               {saveSuccess && (
                 <div className="text-emerald-900 text-xs font-semibold flex items-center gap-1.5 mr-auto">
-                  <CheckCircle2 className="w-4.5 h-4.5 text-emerald-700" />
+                  <CheckCircle2 className="w-4.5 h-4.5 text-blue-700" />
                   <span>Ledger committed successfully. Routing...</span>
                 </div>
               )}

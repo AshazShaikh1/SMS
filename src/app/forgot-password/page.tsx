@@ -56,9 +56,7 @@ export default function ForgotPasswordPage() {
 
       {/* Logo + Title */}
       <div className="sm:mx-auto sm:w-full sm:max-w-md text-center mb-8">
-        <div className="mx-auto w-12 h-12 rounded-2xl bg-[#064e3b] flex items-center justify-center text-white font-bold shadow-md mb-6">
-          S
-        </div>
+        <img src="/logo.svg" alt="EduNexus" className="mx-auto h-12 w-auto object-contain mb-6" />
         <h1 className="text-2xl font-black tracking-tight text-zinc-900">
           Recover Password
         </h1>
@@ -73,8 +71,8 @@ export default function ForgotPasswordPage() {
           <CardContent className="p-6">
             {success ? (
               <div className="space-y-4 py-4 text-center">
-                <div className="mx-auto w-12 h-12 rounded-full bg-emerald-50 text-emerald-700 flex items-center justify-center mb-2">
-                  <CheckCircle className="w-6 h-6" />
+                <div className="mx-auto w-12 h-12 rounded-full bg-blue-50 text-blue-700 flex items-center justify-center mb-2">
+                  <CheckCircle className="w-6 h-6 text-blue-600" />
                 </div>
                 <h3 className="text-sm font-bold text-zinc-800">Check your inbox</h3>
                 <p className="text-xs text-zinc-500 max-w-sm mx-auto leading-relaxed">
@@ -110,7 +108,7 @@ export default function ForgotPasswordPage() {
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
                       placeholder="e.g. yourname@school.edu"
-                      className="h-11 w-full rounded-xl border-zinc-200 px-4 pl-10 text-sm font-medium focus:border-[#064e3b] focus:ring-1 focus:ring-[#064e3b]"
+                      className="h-11 w-full rounded-xl border-zinc-200 px-4 pl-10 text-sm font-medium focus:border-[#1572FE] focus:ring-1 focus:ring-[#1572FE]"
                     />
                     <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
                   </div>
@@ -119,7 +117,7 @@ export default function ForgotPasswordPage() {
                 <Button
                   type="submit"
                   disabled={loading || !email}
-                  className="w-full h-11 bg-[#064e3b] hover:bg-[#0f766e] active:bg-[#115e59] text-white font-bold rounded-xl shadow-md cursor-pointer transition-all duration-200 flex items-center justify-center gap-2"
+                  className="w-full h-11 bg-[#1572FE] hover:bg-[#0f62d4] active:bg-[#004dc5] text-white font-bold rounded-xl shadow-md cursor-pointer transition-all duration-200 flex items-center justify-center gap-2"
                 >
                   {loading ? (
                     <>

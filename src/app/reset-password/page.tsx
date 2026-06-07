@@ -57,7 +57,7 @@ export default function ResetPasswordPage() {
         setSuccess(true);
         // Clear auth token cookie so they have to sign in with new credentials
         document.cookie = "sb-auth-token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 UTC; SameSite=Lax";
-        
+
         setTimeout(() => {
           router.push("/login");
         }, 3000);
@@ -73,9 +73,7 @@ export default function ResetPasswordPage() {
     <div className="min-h-screen bg-[#FAF9F6] flex flex-col justify-center px-4 py-6 sm:px-6 lg:px-8 relative font-sans">
       {/* Logo + Title */}
       <div className="sm:mx-auto sm:w-full sm:max-w-md text-center mb-8">
-        <div className="mx-auto w-12 h-12 rounded-2xl bg-[#064e3b] flex items-center justify-center text-white font-bold shadow-md mb-6">
-          S
-        </div>
+        <img src="/logo.svg" alt="EduNexus" className="mx-auto h-12 w-auto object-contain mb-6" />
         <h1 className="text-2xl font-black tracking-tight text-zinc-900">
           Reset Your Password
         </h1>
@@ -90,7 +88,7 @@ export default function ResetPasswordPage() {
           <CardContent className="p-6">
             {success ? (
               <div className="space-y-4 py-4 text-center">
-                <div className="mx-auto w-12 h-12 rounded-full bg-emerald-50 text-emerald-700 flex items-center justify-center mb-2">
+                <div className="mx-auto w-12 h-12 rounded-full bg-blue-50 text-blue-700 flex items-center justify-center mb-2">
                   <CheckCircle className="w-6 h-6" />
                 </div>
                 <h3 className="text-sm font-bold text-zinc-800">Password Updated!</h3>
@@ -98,7 +96,7 @@ export default function ResetPasswordPage() {
                   Your password has been successfully updated. Redirecting you to the Sign In page...
                 </p>
                 <div className="flex justify-center items-center gap-2 text-xs text-zinc-400 pt-2 font-medium">
-                  <Loader2 className="w-4 h-4 animate-spin text-[#064e3b]" />
+                  <Loader2 className="w-4 h-4 animate-spin text-[#1572FE]" />
                   Please wait...
                 </div>
               </div>
@@ -124,7 +122,7 @@ export default function ResetPasswordPage() {
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       placeholder="Min 6 characters"
-                      className="h-11 w-full rounded-xl border-zinc-200 px-4 pl-10 pr-12 text-sm font-medium focus:border-[#064e3b] focus:ring-1 focus:ring-[#064e3b]"
+                      className="h-11 w-full rounded-xl border-zinc-200 px-4 pl-10 pr-12 text-sm font-medium focus:border-[#1572FE] focus:ring-1 focus:ring-[#1572FE]"
                     />
                     <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
                     <button
@@ -151,7 +149,7 @@ export default function ResetPasswordPage() {
                       value={confirmPassword}
                       onChange={(e) => setConfirmPassword(e.target.value)}
                       placeholder="Repeat new password"
-                      className="h-11 w-full rounded-xl border-zinc-200 px-4 pl-10 pr-12 text-sm font-medium focus:border-[#064e3b] focus:ring-1 focus:ring-[#064e3b]"
+                      className="h-11 w-full rounded-xl border-zinc-200 px-4 pl-10 pr-12 text-sm font-medium focus:border-[#1572FE] focus:ring-1 focus:ring-[#1572FE]"
                     />
                     <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
                   </div>
@@ -160,7 +158,7 @@ export default function ResetPasswordPage() {
                 <Button
                   type="submit"
                   disabled={loading}
-                  className="w-full h-11 bg-[#064e3b] hover:bg-[#0f766e] active:bg-[#115e59] text-white font-bold rounded-xl shadow-md cursor-pointer transition-all duration-200 flex items-center justify-center gap-2"
+                  className="w-full h-11 bg-[#1572FE] hover:bg-[#0f62d4] active:bg-[#004dc5] text-white font-bold rounded-xl shadow-md cursor-pointer transition-all duration-200 flex items-center justify-center gap-2"
                 >
                   {loading ? (
                     <>

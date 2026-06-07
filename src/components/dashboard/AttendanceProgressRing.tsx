@@ -26,8 +26,8 @@ export function AttendanceProgressRing({
       <svg className="transform -rotate-90" width={size} height={size}>
         <defs>
           <linearGradient id={gradientId} x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" stopColor="#0f766e" /> {/* Teal Emerald */}
-            <stop offset="100%" stopColor="#064e3b" /> {/* Deep Emerald */}
+            <stop offset="0%" stopColor="#0f62d4" /> {/* Teal Emerald */}
+            <stop offset="100%" stopColor="#1572FE" /> {/* Deep Emerald */}
           </linearGradient>
         </defs>
         {/* Background track circle */}

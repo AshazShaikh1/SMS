@@ -23,12 +23,10 @@ export default function StudentLayout({
       {/* Sticky Top Header */}
       <header className="border-b border-[#E4E4E7] bg-white/95 backdrop-blur-md sticky top-0 z-50 shadow-xs h-14 flex items-center justify-between px-5">
         <div className="flex items-center gap-2">
-          <div className="w-7 h-7 rounded-lg bg-[#022c22] flex items-center justify-center text-white font-bold text-sm shadow-xs">
-            S
-          </div>
+          <img src="/logo.svg" alt="EduNexus" className="h-7 w-auto object-contain" />
           <span className="font-semibold text-zinc-900 tracking-tight text-sm">My School</span>
         </div>
-        <Badge variant="primary" className="py-0.5 px-2 font-normal text-[10px]">
+        <Badge variant="primary" className="py-0.5 px-2 font-normal text-[10px] bg-[#1572FE] hover:bg-[#1572FE] text-white">
           Student
         </Badge>
       </header>
@@ -43,7 +41,7 @@ export default function StudentLayout({
         <Link
           href="/student"
           className={`flex flex-col items-center justify-center flex-1 h-full py-1 text-center transition-all ${
-            pathname === "/student" ? "text-[#064e3b]" : "text-[#a1a1aa] hover:text-zinc-600"
+            pathname === "/student" ? "text-[#1572FE]" : "text-[#a1a1aa] hover:text-zinc-600"
           }`}
         >
           <GraduationCap className="w-5 h-5" />

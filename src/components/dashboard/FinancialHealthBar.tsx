@@ -19,7 +19,7 @@ export function FinancialHealthBar({
   return (
     <div className={cn("space-y-3 mt-4", className)}>
       <div className="flex justify-between items-center text-[10px] font-bold uppercase tracking-wider">
-        <span className="text-[#064e3b]">
+        <span className="text-[#1572FE]">
           Collected: ₹{collected.toLocaleString("en-IN")} ({collectedPercent.toFixed(0)}%)
         </span>
         <span className="text-[#F59E0B]">
@@ -31,7 +31,7 @@ export function FinancialHealthBar({
       <div className="w-full bg-zinc-100 rounded-full h-2.5 overflow-hidden flex">
         {collectedPercent > 0 && (
           <div
-            className="h-full bg-gradient-to-r from-teal-600 via-emerald-600 to-[#064e3b] transition-all duration-700 ease-out"
+            className="h-full bg-gradient-to-r from-blue-500 via-blue-600 to-[#1572FE] transition-all duration-700 ease-out"
             style={{ width: `${collectedPercent}%` }}
           />
         )}

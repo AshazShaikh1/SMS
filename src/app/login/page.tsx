@@ -96,14 +96,11 @@ export default function LoginPage() {
           <ArrowLeft className="w-3.5 h-3.5" /> Back to Home
         </Link>
       </div>
-
       {/* Logo + Title */}
       <div className="sm:mx-auto sm:w-full sm:max-w-md text-center mb-8">
-        <div className="mx-auto w-12 h-12 rounded-2xl bg-[#064e3b] flex items-center justify-center text-white font-bold shadow-md mb-6">
-          S
-        </div>
+        <img src="/logo.svg" alt="EduNexus" className="mx-auto h-12 w-auto object-contain mb-6" />
         <h1 className="text-2xl font-black tracking-tight text-zinc-900">
-          Sign In to SMS Workspace
+          Sign In to EduNexus
         </h1>
         <p className="mt-2 text-xs text-zinc-400 font-medium">
           Enter your credentials to access the academic platform.
@@ -137,7 +134,7 @@ export default function LoginPage() {
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                   placeholder="e.g. lords-admin-1"
-                  className="h-11 w-full rounded-xl border-zinc-200 px-4 text-sm font-medium focus:border-[#064e3b] focus:ring-1 focus:ring-[#064e3b]"
+                  className="h-11 w-full rounded-xl border-zinc-200 px-4 text-sm font-medium focus:border-[#1572FE] focus:ring-1 focus:ring-[#1572FE]"
                 />
               </div>
 
@@ -149,7 +146,7 @@ export default function LoginPage() {
                   </label>
                   <Link
                     href="/forgot-password"
-                    className="text-xs font-bold text-[#064e3b] hover:text-[#0f766e] transition-colors"
+                    className="text-xs font-bold text-[#1572FE] hover:text-[#0f62d4] transition-colors"
                   >
                     Forgot password?
                   </Link>
@@ -164,12 +161,12 @@ export default function LoginPage() {
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     placeholder="••••••••"
-                    className="h-11 w-full rounded-xl border-zinc-200 px-4 pr-12 text-sm font-medium focus:border-[#064e3b] focus:ring-1 focus:ring-[#064e3b]"
+                    className="h-11 w-full rounded-xl border-zinc-200 px-4 pr-12 text-sm font-medium focus:border-[#1572FE] focus:ring-1 focus:ring-[#1572FE]"
                   />
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-650"
                     aria-label={showPassword ? "Hide password" : "Show password"}
                   >
                     {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
@@ -181,7 +178,7 @@ export default function LoginPage() {
               <Button
                 type="submit"
                 disabled={loading}
-                className="w-full h-11 bg-[#064e3b] hover:bg-[#0f766e] active:bg-[#115e59] text-white font-bold rounded-xl shadow-md cursor-pointer transition-all duration-200 flex items-center justify-center gap-2"
+                className="w-full h-11 bg-[#1572FE] hover:bg-[#0f62d4] active:bg-[#004dc5] text-white font-bold rounded-xl shadow-md cursor-pointer transition-all duration-200 flex items-center justify-center gap-2"
               >
                 {loading ? (
                   <>
@@ -196,12 +193,9 @@ export default function LoginPage() {
           </CardContent>
 
           <CardFooter className="bg-zinc-50/50 border-t border-zinc-100 p-4 flex flex-col items-center gap-2.5 text-center rounded-b-2xl">
-            <span className="text-[10px] text-zinc-400 font-medium">
-              🔒 Unified Multi-Tenant Security · Supabase Auth active
-            </span>
             <Link
               href="/admin/setup"
-              className="text-[11px] font-black text-[#064e3b] hover:text-[#0f766e] transition-colors flex items-center gap-1"
+              className="text-[11px] font-black text-[#1572FE] hover:text-[#0f62d4] transition-colors flex items-center gap-1"
             >
               <Sparkles className="w-3.5 h-3.5" />
               New school? Onboard School Here

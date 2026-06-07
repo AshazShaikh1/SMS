@@ -28,7 +28,7 @@ export default function ChildSelector({
               onClick={() => onSelect(child.id)}
               className={`shrink-0 cursor-pointer text-xs font-semibold px-4 py-2 transition-all duration-200 outline-none select-none ${
                 isActive
-                  ? "bg-[#064e3b] text-white shadow-sm border border-[#064e3b]/80 rounded-full flex items-center gap-2"
+                  ? "bg-[#1572FE] text-white shadow-sm border border-[#1572FE]/80 rounded-full flex items-center gap-2"
                   : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200/70 rounded-full px-4 py-2 transition-all"
               }`}
             >

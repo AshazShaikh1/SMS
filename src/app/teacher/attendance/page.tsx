@@ -174,7 +174,7 @@ function AttendanceRollCallContent() {
         <div className="flex items-center justify-between border-b border-zinc-200 pb-2 flex-wrap gap-2">
           <div className="flex items-center gap-4 text-xs font-semibold text-zinc-550 flex-wrap">
             <span className="text-zinc-800">Class Roster Summary:</span>
-            <span className="flex items-center gap-1.5 text-emerald-800">
+            <span className="flex items-center gap-1.5 text-blue-800">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-700" />
               {stats.present} Present
             </span>
@@ -218,7 +218,7 @@ function AttendanceRollCallContent() {
                   onClick={() => toggleAttendance(student._id)}
                   className={`border cursor-pointer select-none transition-all duration-150 active:scale-[0.98] ${
                     status === "present"
-                      ? "border-emerald-250 bg-emerald-50/10 hover:border-emerald-500 hover:bg-emerald-50/30"
+                      ? "border-blue-250 bg-blue-50/10 hover:border-emerald-500 hover:bg-blue-50/30"
                       : status === "absent"
                       ? "border-red-200 bg-red-50/10 hover:border-red-400 hover:bg-red-50/30"
                       : "border-amber-200 bg-amber-50/10 hover:border-amber-450 hover:bg-amber-50/30"
@@ -228,7 +228,7 @@ function AttendanceRollCallContent() {
                     <div className="flex items-center gap-3">
                       <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs uppercase ${
                         status === "present"
-                          ? "bg-emerald-100 text-emerald-950"
+                          ? "bg-blue-100 text-emerald-950"
                           : status === "absent"
                           ? "bg-red-100 text-red-750"
                           : "bg-amber-100 text-amber-800"
@@ -276,7 +276,7 @@ function AttendanceRollCallContent() {
           <div className="text-xs text-zinc-500 font-medium">
             {saveSuccess ? (
               <span className="text-emerald-900 font-semibold flex items-center gap-1.5">
-                <CheckCircle2 className="w-4.5 h-4.5 text-emerald-700" /> Attendance recorded successfully.
+                <CheckCircle2 className="w-4.5 h-4.5 text-blue-700" /> Attendance recorded successfully.
               </span>
             ) : (
               <span>Ready to submit. Single tap saves all values.</span>

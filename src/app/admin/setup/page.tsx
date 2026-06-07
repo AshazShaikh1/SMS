@@ -40,7 +40,620 @@ export default function OnboardingWizard() {
   const [academicYear, setAcademicYear] = useState("");
   const [adminName, setAdminName] = useState("");
 
-  // Master upload states removed - manual configuration active
+  // File Drop/Upload State
+  const [isDragging, setIsDragging] = useState(false);
+  const [scanStatus, setScanStatus] = useState<"idle" | "reading" | "scanning" | "error" | "done">("idle");
+  const [scanProgress, setScanProgress] = useState(0);
+  const [scanLogs, setScanLogs] = useState<string[]>([]);
+  const [scannedRows, setScannedRows] = useState<any[]>([]);
+  const [incompleteRows, setIncompleteRows] = useState<any[]>([]);
+  const [isReviewOpen, setIsReviewOpen] = useState(false);
+  const [reviewRows, setReviewRows] = useState<any[]>([]);
+  const [reviewMode, setReviewMode] = useState<"master" | "teachers" | "students">("master");
+
+  const getCriticalFields = (mode: "master" | "teachers" | "students") => {
+    if (mode === "teachers") {
+      return ["grade_level", "section", "teacher_name", "subject"];
+    } else if (mode === "students") {
+      return ["grade_level", "section", "student_name", "roll_id", "parent_name", "parent_phone"];
+    } else {
+      return [
+        "school_name", "academic_year", "grade_level", "section", "base_fee",
+        "teacher_name", "subject", "student_name", "roll_id", "parent_name", "parent_phone"
+      ];
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = () => {
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+    const files = e.dataTransfer.files;
+    if (files && files.length > 0) {
+      const mode = step === 3 ? "teachers" : step === 4 ? "students" : "master";
+      processRosterFile(files[0], mode);
+    }
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (files && files.length > 0) {
+      const mode = step === 3 ? "teachers" : step === 4 ? "students" : "master";
+      processRosterFile(files[0], mode);
+    }
+  };
+
+  const processRosterFile = (file: File, mode: "master" | "teachers" | "students") => {
+    setScanStatus("reading");
+    setScanProgress(0);
+    setScanLogs(["Reading spreadsheet file..."]);
+    setReviewMode(mode);
+    
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      try {
+        const data = new Uint8Array(e.target?.result as ArrayBuffer);
+        const workbook = XLSX.read(data, { type: "array" });
+        const sheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[sheetName];
+        
+        const csv = XLSX.utils.sheet_to_csv(worksheet);
+        const lines = csv.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+        
+        if (lines.length <= 1) {
+          setScanStatus("error");
+          setToast({ message: "The spreadsheet has no data rows.", type: "error" });
+          return;
+        }
+        
+        const header = lines[0];
+        const dataRows = lines.slice(1);
+        
+        setScanStatus("scanning");
+        setScanLogs(prev => [...prev, `Found ${dataRows.length} data rows. Splitting into chunks...`]);
+        
+        const chunkSize = 12;
+        const chunks: string[] = [];
+        for (let i = 0; i < dataRows.length; i += chunkSize) {
+          const chunkData = dataRows.slice(i, i + chunkSize);
+          chunks.push([header, ...chunkData].join("\n"));
+        }
+        
+        setScanLogs(prev => [...prev, `Created ${chunks.length} chunks. Starting AI semantic scan...`]);
+        
+        let allParsedRows: any[] = [];
+        let completedChunks = 0;
+        
+        for (let idx = 0; idx < chunks.length; idx++) {
+          const chunkText = chunks[idx];
+          setScanLogs(prev => [...prev, `Scanning chunk ${idx + 1} of ${chunks.length}...`]);
+          
+          try {
+            const res = await fetch("/api/parse-rows", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ rowsText: chunkText, mode })
+            });
+            
+            const result = await res.json();
+            
+            if (!res.ok || !result.success) {
+              throw new Error(result.error || `Server responded with ${res.status}`);
+            }
+
+            
+            setScanLogs(prev => [
+              ...prev,
+              `[AI Prompt (Chunk ${idx + 1})]: Sent ${chunkText.split('\n').length - 1} data rows to Groq.`,
+              `[AI Response (Chunk ${idx + 1})]: Received ${Array.isArray(result.data) ? result.data.length : 0} parsed records.`
+            ]);
+            
+            if (Array.isArray(result.data)) {
+              allParsedRows = [...allParsedRows, ...result.data];
+            } else {
+              console.warn("Invalid data format returned for chunk", idx, result.data);
+              throw new Error("AI did not return a valid list of records.");
+            }
+            
+          } catch (chunkErr: any) {
+            console.error("Error parsing chunk", idx, chunkErr);
+            setScanLogs(prev => [...prev, `⚠️ Error scanning chunk ${idx + 1}: ${chunkErr.message || chunkErr}`]);
+          }
+          
+          completedChunks++;
+          setScanProgress(Math.round((completedChunks / chunks.length) * 100));
+        }
+        
+        if (allParsedRows.length === 0) {
+          setScanStatus("error");
+          setToast({ message: "AI scan failed. No rows could be parsed.", type: "error" });
+          return;
+        }
+        
+        setScanLogs(prev => [...prev, `AI Scan completed. Parsed ${allParsedRows.length} total records.`]);
+        
+        const criticalFields = getCriticalFields(mode);
+        const processedRows = allParsedRows.map((row, idx) => {
+          const missing: string[] = [];
+          criticalFields.forEach(f => {
+            if (row[f] === undefined || row[f] === null || String(row[f]).trim() === "") {
+              missing.push(f);
+            }
+          });
+          
+          return {
+            ...row,
+            _originalIndex: idx,
+            status: missing.length > 0 ? "incomplete" : "complete",
+            missing_fields: missing
+          };
+        });
+        
+        setScannedRows(processedRows);
+        
+        const incomplete = processedRows.filter(r => r.status === "incomplete");
+        setIncompleteRows(incomplete);
+        
+        if (incomplete.length > 0) {
+          setScanStatus("done");
+          setScanLogs(prev => [...prev, `Found ${incomplete.length} incomplete records requiring review.`]);
+          setToast({ message: `AI Scan finished: ${incomplete.length} records require review.`, type: "warning" });
+          setReviewRows(incomplete);
+          setIsReviewOpen(true);
+        } else {
+          setScanStatus("done");
+          setScanLogs(prev => [...prev, `All ${processedRows.length} records parsed successfully!`]);
+          setToast({ message: "AI Scan successful! All records are complete.", type: "success" });
+          
+          if (mode === "teachers") {
+            mapScannedTeachers(processedRows);
+          } else if (mode === "students") {
+            mapScannedStudents(processedRows);
+          } else {
+            mapScannedDataToWizard(processedRows);
+          }
+        }
+        
+      } catch (err: any) {
+        console.error(err);
+        setScanStatus("error");
+        setScanLogs(prev => [...prev, `❌ Critical Error: ${err.message || err}`]);
+        setToast({ message: `Failed to process file: ${err.message}`, type: "error" });
+      }
+    };
+    
+    reader.onerror = () => {
+      setScanStatus("error");
+      setToast({ message: "Failed to read the file.", type: "error" });
+    };
+    
+    reader.readAsArrayBuffer(file);
+  };
+
+  const processRosterPastedText = async (text: string, mode: "master" | "teachers" | "students") => {
+    if (!text.trim()) {
+      setToast({ message: "No data pasted. Paste text roster or upload a CSV file.", type: "warning" });
+      return;
+    }
+    
+    setScanStatus("reading");
+    setScanProgress(0);
+    setScanLogs(["Processing pasted text..."]);
+    setReviewMode(mode);
+    
+    try {
+      const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+      if (lines.length === 0) {
+        setScanStatus("error");
+        setToast({ message: "Pasted text is empty.", type: "error" });
+        return;
+      }
+      
+      const header = lines[0];
+      const dataRows = lines.slice(1);
+      
+      setScanStatus("scanning");
+      setScanLogs(prev => [...prev, `Found ${dataRows.length} data rows. Splitting into chunks...`]);
+      
+      const chunkSize = 12;
+      const chunks: string[] = [];
+      
+      if (dataRows.length === 0) {
+        chunks.push(header);
+      } else {
+        for (let i = 0; i < dataRows.length; i += chunkSize) {
+          const chunkData = dataRows.slice(i, i + chunkSize);
+          chunks.push([header, ...chunkData].join("\n"));
+        }
+      }
+      
+      setScanLogs(prev => [...prev, `Created ${chunks.length} chunks. Starting AI semantic scan...`]);
+      
+      let allParsedRows: any[] = [];
+      let completedChunks = 0;
+      
+      for (let idx = 0; idx < chunks.length; idx++) {
+        const chunkText = chunks[idx];
+        setScanLogs(prev => [...prev, `Scanning chunk ${idx + 1} of ${chunks.length}...`]);
+        
+        try {
+          const res = await fetch("/api/parse-rows", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ rowsText: chunkText, mode })
+          });
+          
+          const result = await res.json();
+          
+          if (!res.ok || !result.success) {
+            throw new Error(result.error || `Server responded with ${res.status}`);
+          }
+
+          
+          setScanLogs(prev => [
+            ...prev,
+            `[AI Prompt (Chunk ${idx + 1})]: Sent ${chunkText.split('\n').length - 1} data rows to Groq.`,
+            `[AI Response (Chunk ${idx + 1})]: Received ${Array.isArray(result.data) ? result.data.length : 0} parsed records.`
+          ]);
+          
+          if (Array.isArray(result.data)) {
+            allParsedRows = [...allParsedRows, ...result.data];
+          } else {
+            console.warn("Invalid data format returned for chunk", idx, result.data);
+            throw new Error("AI did not return a valid list of records.");
+          }
+          
+        } catch (chunkErr: any) {
+          console.error("Error parsing chunk", idx, chunkErr);
+          setScanLogs(prev => [...prev, `⚠️ Error scanning chunk ${idx + 1}: ${chunkErr.message || chunkErr}`]);
+        }
+        
+        completedChunks++;
+        setScanProgress(Math.round((completedChunks / chunks.length) * 100));
+      }
+      
+      if (allParsedRows.length === 0) {
+        setScanStatus("error");
+        setToast({ message: "AI scan failed. No rows could be parsed.", type: "error" });
+        return;
+      }
+      
+      setScanLogs(prev => [...prev, `AI Scan completed. Parsed ${allParsedRows.length} total records.`]);
+      
+      const criticalFields = getCriticalFields(mode);
+      const processedRows = allParsedRows.map((row, idx) => {
+        const missing: string[] = [];
+        criticalFields.forEach(f => {
+          if (row[f] === undefined || row[f] === null || String(row[f]).trim() === "") {
+            missing.push(f);
+          }
+        });
+        
+        return {
+          ...row,
+          _originalIndex: idx,
+          status: missing.length > 0 ? "incomplete" : "complete",
+          missing_fields: missing
+        };
+      });
+      
+      setScannedRows(processedRows);
+      
+      const incomplete = processedRows.filter(r => r.status === "incomplete");
+      setIncompleteRows(incomplete);
+      
+      if (incomplete.length > 0) {
+        setScanStatus("done");
+        setScanLogs(prev => [...prev, `Found ${incomplete.length} incomplete records requiring review.`]);
+        setToast({ message: `AI Scan finished: ${incomplete.length} records require review.`, type: "warning" });
+        setReviewRows(incomplete);
+        setIsReviewOpen(true);
+      } else {
+        setScanStatus("done");
+        setScanLogs(prev => [...prev, `All ${processedRows.length} records parsed successfully!`]);
+        setToast({ message: "AI Scan successful! All records are complete.", type: "success" });
+        
+        if (mode === "teachers") {
+          mapScannedTeachers(processedRows);
+        } else if (mode === "students") {
+          mapScannedStudents(processedRows);
+        } else {
+          mapScannedDataToWizard(processedRows);
+        }
+      }
+      
+    } catch (err: any) {
+      console.error(err);
+      setScanStatus("error");
+      setScanLogs(prev => [...prev, `❌ Critical Error: ${err.message || err}`]);
+      setToast({ message: `Failed to process text: ${err.message}`, type: "error" });
+    }
+  };
+
+  const handleIncompleteRowChange = (index: number, field: string, value: any) => {
+    setReviewRows(prev => prev.map(row => {
+      if (row._originalIndex === index) {
+        const updatedRow = { ...row, [field]: value };
+        const missing: string[] = [];
+        const criticalFields = getCriticalFields(reviewMode);
+        criticalFields.forEach(f => {
+          if (updatedRow[f] === undefined || updatedRow[f] === null || String(updatedRow[f]).trim() === "") {
+            missing.push(f);
+          }
+        });
+        updatedRow.missing_fields = missing;
+        return updatedRow;
+      }
+      return row;
+    }));
+  };
+
+  const handleApplyCorrections = () => {
+    const criticalFields = getCriticalFields(reviewMode);
+    
+    const validatedRows = reviewRows.map(row => {
+      const missing: string[] = [];
+      criticalFields.forEach(f => {
+        if (row[f] === undefined || row[f] === null || String(row[f]).trim() === "") {
+          missing.push(f);
+        }
+      });
+      return {
+        ...row,
+        status: missing.length > 0 ? "incomplete" : "complete",
+        missing_fields: missing
+      };
+    });
+
+    const stillIncomplete = validatedRows.filter(r => r.status === "incomplete");
+    if (stillIncomplete.length > 0) {
+      setReviewRows(validatedRows);
+      setToast({ message: `There are still ${stillIncomplete.length} incomplete records. Please fill all highlighted fields.`, type: "error" });
+      return;
+    }
+
+    const updatedScanned = scannedRows.map(origRow => {
+      const match = validatedRows.find(r => r._originalIndex === origRow._originalIndex);
+      return match ? match : origRow;
+    });
+
+    setScannedRows(updatedScanned);
+    setIncompleteRows([]);
+    setReviewRows([]);
+    
+    if (reviewMode === "teachers") {
+      mapScannedTeachers(updatedScanned);
+    } else if (reviewMode === "students") {
+      mapScannedStudents(updatedScanned);
+    } else {
+      mapScannedDataToWizard(updatedScanned);
+    }
+    
+    setIsReviewOpen(false);
+    setToast({ message: "AI-scanned data has been successfully mapped to the wizard!", type: "success" });
+  };
+
+  const mapScannedTeachers = (rows: any[]) => {
+    const teacherRowsMap = new Map<string, any[]>();
+    rows.forEach(r => {
+      if (r.teacher_name) {
+        const key = r.teacher_name.trim();
+        if (!teacherRowsMap.has(key)) {
+          teacherRowsMap.set(key, []);
+        }
+        teacherRowsMap.get(key)!.push(r);
+      }
+    });
+
+    const mappedTeachers = Array.from(teacherRowsMap.entries()).map(([name, tRows]) => {
+      const subjectAllocMap = new Map<string, Set<string>>();
+      tRows.forEach(r => {
+        if (r.subject && r.grade_level && r.section) {
+          const subject = r.subject.trim();
+          const classKey = `${r.grade_level}-${r.section.toUpperCase()}`;
+          if (!subjectAllocMap.has(subject)) {
+            subjectAllocMap.set(subject, new Set());
+          }
+          subjectAllocMap.get(subject)!.add(classKey);
+        }
+      });
+
+      const allocations = Array.from(subjectAllocMap.entries()).map(([subjectName, classesSet]) => ({
+        subjectName,
+        classes: Array.from(classesSet)
+      }));
+
+      return {
+        id: `teach-${crypto.randomUUID()}`,
+        name,
+        allocations
+      };
+    });
+
+    setTeachers(mappedTeachers);
+    setToast({ message: `Scanned and loaded ${mappedTeachers.length} teachers.`, type: "success" });
+  };
+
+  const mapScannedStudents = (rows: any[]) => {
+    const processedStudentsList: any[] = [];
+    rows.forEach(r => {
+      if (r.student_name) {
+        const sName = r.student_name.trim();
+        let studentEmail = (r.student_email || "").trim();
+        let rollStr = String(r.roll_id || "").trim();
+        const gradeLevel = r.grade_level || "Grade 1";
+        const section = (r.section || "A").toUpperCase();
+        const parentName = (r.parent_name || "").trim() || `${sName}'s Parent`;
+        let parentEmail = (r.parent_email || "").trim();
+        const parentPhone = (r.parent_phone || "").trim();
+        
+        const repairedFields: any = {};
+        
+        if (!studentEmail) {
+          const hash = Math.random().toString(36).substring(2, 6);
+          const cleanName = sName.toLowerCase().replace(/[^a-z0-9]/g, "");
+          studentEmail = `student.${cleanName}.${hash}@school.com`;
+          repairedFields.emailGenerated = true;
+        }
+        if (!parentEmail) {
+          const hash = Math.random().toString(36).substring(2, 6);
+          const cleanName = sName.toLowerCase().replace(/[^a-z0-9]/g, "");
+          parentEmail = `parent.${cleanName}.${hash}@school.com`;
+          repairedFields.emailGenerated = true;
+        }
+
+        if (!parentPhone) {
+          repairedFields.whatsappDisabled = true;
+        }
+
+        let rollNumber = parseInt(rollStr, 10);
+        if (isNaN(rollNumber) || rollNumber <= 0) {
+          rollNumber = 0;
+          repairedFields.rollAssigned = true;
+        }
+
+        const feeObj = gradeFees.find(gf => gf.grade === gradeLevel);
+        const baseFee = feeObj ? feeObj.fee : 15000;
+
+        processedStudentsList.push({
+          name: sName,
+          email: studentEmail,
+          rollNumber,
+          gradeLevel,
+          section,
+          parentName,
+          parentEmail,
+          parentPhone,
+          repairedFields,
+          baseFee
+        });
+      }
+    });
+
+    const classGroups: Record<string, typeof processedStudentsList> = {};
+    for (const student of processedStudentsList) {
+      const classKey = `${student.gradeLevel}-${student.section}`;
+      if (!classGroups[classKey]) {
+        classGroups[classKey] = [];
+      }
+      classGroups[classKey].push(student);
+    }
+
+    const finalRoster: any[] = [];
+
+    for (const classKey in classGroups) {
+      const classStudents = classGroups[classKey];
+      const withRoll = classStudents.filter((s) => s.rollNumber > 0);
+      const withoutRoll = classStudents.filter((s) => s.rollNumber === 0);
+
+      withoutRoll.sort((a, b) => a.name.localeCompare(b.name));
+
+      const usedRolls = new Set(withRoll.map((s) => s.rollNumber));
+      let currentRoll = 1;
+
+      for (const s of withoutRoll) {
+        while (usedRolls.has(currentRoll)) {
+          currentRoll++;
+        }
+        s.rollNumber = currentRoll;
+        usedRolls.add(currentRoll);
+        finalRoster.push(s);
+      }
+
+      for (const s of withRoll) {
+        finalRoster.push(s);
+      }
+    }
+
+    setParsedStudents(finalRoster);
+    setToast({ message: `Scanned and loaded ${finalRoster.length} students.`, type: "success" });
+  };
+
+  const mapScannedDataToWizard = (rows: any[]) => {
+    if (rows.length === 0) return;
+
+    const firstSchoolRow = rows.find(r => r.school_name);
+    if (firstSchoolRow) {
+      setSchoolName(firstSchoolRow.school_name);
+    }
+    const firstYearRow = rows.find(r => r.academic_year);
+    if (firstYearRow) {
+      setAcademicYear(firstYearRow.academic_year);
+    }
+    const firstAdminRow = rows.find(r => r.admin_name);
+    if (firstAdminRow) {
+      setAdminName(firstAdminRow.admin_name);
+    }
+
+    const gradeLevels = Array.from(new Set(rows.map(r => r.grade_level).filter(Boolean))) as string[];
+    const mappedGradeFees = gradeLevels.map(grade => {
+      const matchingRow = rows.find(r => r.grade_level === grade && r.base_fee);
+      const fee = matchingRow ? Number(matchingRow.base_fee) : 15000;
+      return { grade, fee, extraCharge: 0, discount: 0 };
+    });
+    
+    if (mappedGradeFees.length > 0) {
+      setGradeFees(mappedGradeFees);
+    }
+
+    const tempMatrix: Record<string, Record<string, boolean>> = {};
+    const classesSet = new Set<string>();
+    
+    rows.forEach(r => {
+      if (r.grade_level && r.section) {
+        const grade = r.grade_level;
+        const sec = r.section.toUpperCase();
+        
+        if (!tempMatrix[grade]) {
+          tempMatrix[grade] = {};
+        }
+        tempMatrix[grade][sec] = true;
+        classesSet.add(`${grade}-${sec}`);
+      }
+    });
+    
+    const foundSections = Array.from(new Set(rows.map(r => r.section?.toUpperCase()).filter(Boolean))) as string[];
+    if (foundSections.length > 0) {
+      const mergedSections = Array.from(new Set([...sectionsList, ...foundSections])).sort();
+      setSectionsList(mergedSections);
+    }
+    
+    setMatrix(prev => {
+      const next = { ...prev };
+      rows.forEach(r => {
+        if (r.grade_level && r.section) {
+          const grade = r.grade_level;
+          const sec = r.section.toUpperCase();
+          if (!next[grade]) next[grade] = {};
+          next[grade][sec] = true;
+        }
+      });
+      return next;
+    });
+
+    const activeClasses: { gradeKey: string; section: string; baseFee: number }[] = [];
+    classesSet.forEach(classKey => {
+      const [grade, sec] = classKey.split("-");
+      const feeObj = mappedGradeFees.find(gf => gf.grade === grade);
+      const fee = feeObj ? feeObj.fee : 15000;
+      activeClasses.push({ gradeKey: grade, section: sec, baseFee: fee });
+    });
+    setPreparedClasses(activeClasses);
+
+    // Also map scanned teachers
+    mapScannedTeachers(rows);
+    // Also map scanned students
+    mapScannedStudents(rows);
+  };
+
 
   // Dynamic Grade List State
   const [gradeFees, setGradeFees] = useState<{ grade: string; fee: number; extraCharge: number; discount: number }[]>([
@@ -779,12 +1392,10 @@ export default function OnboardingWizard() {
         {/* Header Section */}
         {step < 5 && (
           <div className="flex flex-col items-center gap-2 mb-4 text-center">
-            <div className="w-12 h-12 rounded-2xl bg-[#064e3b] flex items-center justify-center text-white font-bold shadow-md">
-              S
-            </div>
+            <img src="/logo.svg" alt="EduNexus" className="h-12 w-auto object-contain mb-1" />
             <span className="text-xs font-bold text-zinc-400 uppercase tracking-widest mt-1">School Setup Wizard</span>
             <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-zinc-900 flex items-center justify-center gap-1.5">
-              <Sparkles className="w-5 h-5 text-emerald-800" /> Register Your School
+              <Sparkles className="w-5 h-5 text-blue-800" /> Register Your School
             </h2>
           </div>
         )}
@@ -803,13 +1414,13 @@ export default function OnboardingWizard() {
                 <div
                   className={`w-9 h-9 rounded-full flex items-center justify-center border font-bold transition-all duration-300 ${
                     step >= sObj.num
-                      ? "bg-[#064e3b] border-[#064e3b] text-white shadow-sm"
+                      ? "bg-[#1572FE] border-[#1572FE] text-white shadow-sm"
                       : "bg-white border-zinc-200 text-zinc-400"
                   }`}
                 >
                   {step > sObj.num ? "✓" : sObj.num}
                 </div>
-                <span className={`text-[9px] sm:text-[10px] uppercase tracking-wider font-bold ${step === sObj.num ? "text-[#064e3b]" : "text-zinc-400"}`}>
+                <span className={`text-[9px] sm:text-[10px] uppercase tracking-wider font-bold ${step === sObj.num ? "text-[#1572FE]" : "text-zinc-400"}`}>
                   {sObj.label}
                 </span>
               </div>
@@ -826,8 +1437,8 @@ export default function OnboardingWizard() {
             </div>
           )}
           {success && step < 5 && (
-            <div className="p-4 text-xs bg-emerald-50 border-b border-emerald-200 text-[#064e3b] font-medium animate-fade-in flex items-center gap-1.5 rounded-t-2xl">
-              <CheckCircle2 className="w-4.5 h-4.5 text-emerald-700" />
+            <div className="p-4 text-xs bg-blue-50 border-b border-blue-200 text-[#1572FE] font-medium animate-fade-in flex items-center gap-1.5 rounded-t-2xl">
+              <CheckCircle2 className="w-4.5 h-4.5 text-blue-700" />
               {success}
             </div>
           )}
@@ -847,6 +1458,112 @@ export default function OnboardingWizard() {
               </CardHeader>
               <CardContent className="p-4 sm:p-6 space-y-6">
                 <div className="space-y-6">
+                  {/* Master Drag-and-Drop Uploader */}
+                  <div className="space-y-4">
+                    <div
+                      onDragOver={handleDragOver}
+                      onDragLeave={handleDragLeave}
+                      onDrop={handleDrop}
+                      className={`border-2 border-dashed rounded-2xl p-6 transition-all text-center flex flex-col items-center justify-center gap-3 cursor-pointer ${
+                        isDragging
+                          ? "border-[#1572FE] bg-[#e6f0ff]"
+                          : "border-[#fed7aa] bg-[#fff8f5]"
+                      }`}
+                    >
+                      <input
+                        type="file"
+                        id="master-file-upload"
+                        className="hidden"
+                        accept=".xlsx,.xls,.csv"
+                        onChange={handleFileChange}
+                      />
+                      <label htmlFor="master-file-upload" className="w-full h-full flex flex-col items-center justify-center cursor-pointer gap-2">
+                        <div className="w-12 h-12 rounded-xl bg-orange-100 flex items-center justify-center text-orange-650">
+                          <Upload className="w-6 h-6" />
+                        </div>
+                        <div>
+                          <span className="text-xs font-bold text-zinc-900 block">
+                            Drag & drop school roster spreadsheet here
+                          </span>
+                          <span className="text-[10px] text-zinc-500 block mt-1">
+                            Supports Excel (.xlsx, .xls) and CSV files
+                          </span>
+                        </div>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-8 mt-1 border-orange-200 text-orange-700 hover:bg-orange-50 bg-white"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            document.getElementById("master-file-upload")?.click();
+                          }}
+                        >
+                          Choose File
+                        </Button>
+                      </label>
+                    </div>
+
+                    {/* Scan Progress & Logs */}
+                    {scanStatus !== "idle" && (
+                      <div className="p-4 rounded-xl border border-zinc-200 bg-[#fafafa] space-y-3">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-bold text-zinc-800 flex items-center gap-1.5">
+                            {scanStatus === "scanning" || scanStatus === "reading" ? (
+                              <Loader2 className="w-4 h-4 animate-spin text-orange-650" />
+                            ) : scanStatus === "error" ? (
+                              <AlertTriangle className="w-4 h-4 text-red-500" />
+                            ) : (
+                              <CheckCircle2 className="w-4 h-4 text-blue-600" />
+                            )}
+                            AI Semantic Ingestion Scan ({scanProgress}%)
+                          </span>
+                          {scanStatus !== "scanning" && scanStatus !== "reading" && (
+                            <button
+                              onClick={() => {
+                                setScanStatus("idle");
+                                setScanProgress(0);
+                                setScanLogs([]);
+                              }}
+                              className="text-[10px] font-bold text-orange-750 hover:text-orange-950 uppercase cursor-pointer"
+                            >
+                              Reset
+                            </button>
+                          )}
+                        </div>
+
+                        {/* Progress Bar */}
+                        <div className="w-full bg-zinc-200 h-1.5 rounded-full overflow-hidden">
+                          <div
+                            className="bg-[#1572FE] h-full transition-all duration-300"
+                            style={{ width: `${scanProgress}%` }}
+                          />
+                        </div>
+
+                        {/* Log Output */}
+                        <div className="max-h-24 overflow-y-auto bg-zinc-900 text-[10px] font-mono text-[#10b981] p-2.5 rounded-lg space-y-1">
+                          {scanLogs.map((log, idx) => (
+                            <div key={idx}>{log}</div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {incompleteRows.length > 0 && (
+                      <div className="p-3 rounded-xl border border-orange-200 bg-orange-50/50 flex items-center justify-between text-xs">
+                        <span className="font-semibold text-orange-850">
+                          ⚠️ AI Scan complete: {incompleteRows.length} rows have missing values and require review.
+                        </span>
+                        <Button
+                          type="button"
+                          onClick={() => setIsReviewOpen(true)}
+                          className="h-8 bg-orange-600 hover:bg-orange-750 text-white font-bold text-[11px] px-3 rounded-lg"
+                        >
+                          Review & Complete
+                        </Button>
+                      </div>
+                    )}
+                  </div>
                   {/* Identity Form */}
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                     <div className="space-y-1.5">
@@ -854,7 +1571,7 @@ export default function OnboardingWizard() {
                       <Input
                         value={schoolName}
                         onChange={(e) => setSchoolName(e.target.value)}
-                        placeholder="e.g. Antigravity Academy"
+                        placeholder="e.g. EduNexus Academy"
                       />
                     </div>
                     <div className="space-y-1.5">
@@ -905,7 +1622,7 @@ export default function OnboardingWizard() {
                           type="button"
                           onClick={handleAddGrade}
                           size="sm"
-                          className="h-8 px-2.5 bg-[#064e3b] hover:bg-[#0f766e] text-white flex items-center gap-1 cursor-pointer shrink-0"
+                          className="h-8 px-2.5 bg-[#1572FE] hover:bg-[#0f62d4] text-white flex items-center gap-1 cursor-pointer shrink-0"
                         >
                           <Plus className="w-3.5 h-3.5" /> Add
                         </Button>
@@ -997,7 +1714,7 @@ export default function OnboardingWizard() {
                 <Link href="/login" className="text-xs font-semibold text-zinc-500 hover:text-zinc-850 flex items-center gap-1 order-2 sm:order-1">
                   <ArrowLeft className="w-3.5 h-3.5" /> Back to Login
                 </Link>
-                <Button onClick={handleStep1Next} className="gap-1.5 bg-[#064e3b] hover:bg-[#0f766e] active:bg-[#115e59] w-full sm:w-auto order-1 sm:order-2 justify-center cursor-pointer">
+                <Button onClick={handleStep1Next} className="gap-1.5 bg-[#1572FE] hover:bg-[#0f62d4] active:bg-[#004dc5] w-full sm:w-auto order-1 sm:order-2 justify-center cursor-pointer">
                   Next: Section Matrix <ArrowRight className="w-3.5 h-3.5" />
                 </Button>
               </CardFooter>
@@ -1040,7 +1757,7 @@ export default function OnboardingWizard() {
                       variant="outline"
                       onClick={handleAddSection}
                       size="sm"
-                      className="h-7 px-2 border-zinc-300 text-xs text-[#064e3b] flex items-center gap-1"
+                      className="h-7 px-2 border-zinc-300 text-xs text-[#1572FE] flex items-center gap-1"
                     >
                       <Plus className="w-3 h-3" /> Section Column
                     </Button>
@@ -1049,7 +1766,7 @@ export default function OnboardingWizard() {
                   <label className="flex items-center gap-2 text-xs font-bold text-zinc-700 cursor-pointer">
                     <input
                       type="checkbox"
-                      className="rounded border-zinc-300 text-[#064e3b] focus:ring-[#064e3b]"
+                      className="rounded border-zinc-300 text-[#1572FE] focus:ring-[#1572FE]"
                       onChange={(e) => handleSelectAll(e.target.checked)}
                     />
                     Select All Sections
@@ -1086,7 +1803,7 @@ export default function OnboardingWizard() {
                                   type="checkbox"
                                   checked={!!sections[sec]}
                                   onChange={(e) => handleToggleCell(gradeKey, sec, e.target.checked)}
-                                  className="w-4.5 h-4.5 rounded border-zinc-300 text-[#064e3b] focus:ring-[#064e3b] cursor-pointer"
+                                  className="w-4.5 h-4.5 rounded border-zinc-300 text-[#1572FE] focus:ring-[#1572FE] cursor-pointer"
                                 />
                               </div>
                             ))}
@@ -1097,7 +1814,7 @@ export default function OnboardingWizard() {
                                 type="checkbox"
                                 checked={allChecked}
                                 onChange={(e) => handleSelectAllForGrade(gradeKey, e.target.checked)}
-                                className="rounded border-zinc-300 text-[#064e3b] focus:ring-[#064e3b]"
+                                className="rounded border-zinc-300 text-[#1572FE] focus:ring-[#1572FE]"
                               />
                               All
                             </label>
@@ -1112,9 +1829,9 @@ export default function OnboardingWizard() {
                   <Button
                     type="button"
                     onClick={handleGenerateStructure}
-                    className="w-full sm:w-auto px-6 py-2 bg-[#064e3b] hover:bg-[#0f766e] active:bg-[#115e59] text-white rounded-xl shadow font-semibold text-xs flex items-center justify-center gap-2"
+                    className="w-full sm:w-auto px-6 py-2 bg-[#1572FE] hover:bg-[#0f62d4] active:bg-[#004dc5] text-white rounded-xl shadow font-semibold text-xs flex items-center justify-center gap-2"
                   >
-                    <Sparkles className="w-4 h-4 text-[#ecfdf5]" /> Generate School Structure ({preparedClasses.length} Classrooms)
+                    <Sparkles className="w-4 h-4 text-[#e6f0ff]" /> Generate School Structure ({preparedClasses.length} Classrooms)
                   </Button>
                 </div>
 
@@ -1132,7 +1849,7 @@ export default function OnboardingWizard() {
                           <span className="font-bold text-zinc-800 min-w-[120px]">{grade}</span>
                           <div className="flex flex-wrap gap-1.5 flex-1 justify-start">
                             {sections.map((sec) => (
-                              <span key={sec} className="px-2 py-0.5 rounded-md bg-[#ecfdf5] border border-[#064e3b]/10 text-[#064e3b] font-bold text-[10px]">
+                              <span key={sec} className="px-2 py-0.5 rounded-md bg-[#e6f0ff] border border-[#1572FE]/10 text-[#1572FE] font-bold text-[10px]">
                                 Section {sec}
                               </span>
                             ))}
@@ -1150,7 +1867,7 @@ export default function OnboardingWizard() {
                 <Button variant="outline" onClick={() => setStep(1)} className="gap-1.5 w-full sm:w-auto">
                   <ArrowLeft className="w-3.5 h-3.5" /> Back
                 </Button>
-                <Button onClick={handleStep2Next} className="gap-1.5 bg-[#064e3b] hover:bg-[#0f766e] active:bg-[#115e59] w-full sm:w-auto">
+                <Button onClick={handleStep2Next} className="gap-1.5 bg-[#1572FE] hover:bg-[#0f62d4] active:bg-[#004dc5] w-full sm:w-auto">
                   Next: Faculty Roster <ArrowRight className="w-3.5 h-3.5" />
                 </Button>
               </CardFooter>
@@ -1172,6 +1889,143 @@ export default function OnboardingWizard() {
               </CardHeader>
               <CardContent className="p-4 sm:p-6 space-y-6">
                 <div className="space-y-6">
+                  {/* AI Semantic Ingestion Section */}
+                  <div className="space-y-4 border border-[#fed7aa] bg-[#fff8f5] rounded-2xl p-4 sm:p-6 shadow-sm">
+                    <div className="flex items-center gap-2">
+                      <Sparkles className="w-5 h-5 text-orange-600" />
+                      <div>
+                        <h4 className="text-xs sm:text-sm font-bold text-zinc-900">AI Semantic Ingestion (Recommended)</h4>
+                        <p className="text-[11px] text-zinc-500">
+                          Upload your faculty spreadsheet or paste raw text. The AI will extract teachers and subject allocations automatically.
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {/* Drag & Drop zone */}
+                      <div
+                        onDragOver={handleDragOver}
+                        onDragLeave={handleDragLeave}
+                        onDrop={handleDrop}
+                        className={`border-2 border-dashed rounded-xl p-4 text-center flex flex-col items-center justify-center gap-2 cursor-pointer transition-all ${
+                          isDragging
+                            ? "border-[#1572FE] bg-[#e6f0ff]"
+                            : "border-[#fed7aa]/60 bg-white"
+                        }`}
+                      >
+                        <input
+                          type="file"
+                          id="teacher-file-upload"
+                          className="hidden"
+                          accept=".xlsx,.xls,.csv"
+                          onChange={handleFileChange}
+                        />
+                        <label htmlFor="teacher-file-upload" className="w-full h-full flex flex-col items-center justify-center cursor-pointer gap-1">
+                          <Upload className="w-5 h-5 text-orange-655 mx-auto" />
+                          <span className="text-[11px] font-bold text-zinc-900 block mt-1">
+                            Upload Faculty Spreadsheet
+                          </span>
+                          <span className="text-[9px] text-zinc-400 block">
+                            Supports Excel (.xlsx, .xls) and CSV
+                          </span>
+                        </label>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-8 mt-1 border-orange-200 text-orange-700 hover:bg-orange-50 bg-white text-[10px]"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            document.getElementById("teacher-file-upload")?.click();
+                          }}
+                        >
+                          Choose File
+                        </Button>
+                      </div>
+
+                      {/* Paste textbox option */}
+                      <div className="space-y-2 flex flex-col">
+                        <textarea
+                          rows={3}
+                          id="teacher-pasted-text"
+                          placeholder="Paste teacher rows here...&#10;e.g. Susan Smith, Maths, Grade 10-A&#10;John Doe, Physics, Grade 11-B"
+                          className="w-full text-xs font-mono p-2.5 border border-zinc-200 rounded-xl focus:border-[#1572FE] focus:ring-1 focus:ring-[#1572FE] bg-white outline-none flex-1 resize-none"
+                        />
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => {
+                            const val = (document.getElementById("teacher-pasted-text") as HTMLTextAreaElement)?.value || "";
+                            processRosterPastedText(val, "teachers");
+                          }}
+                          className="w-full h-8 text-[11px] border-orange-200 text-orange-700 hover:bg-orange-50 bg-white font-bold"
+                        >
+                          Scan Pasted Text with AI
+                        </Button>
+                      </div>
+                    </div>
+
+                    {/* Scan Progress & Logs for Step 3 */}
+                    {scanStatus !== "idle" && reviewMode === "teachers" && (
+                      <div className="p-4 rounded-xl border border-zinc-200 bg-[#fafafa] space-y-3">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-bold text-zinc-800 flex items-center gap-1.5">
+                            {scanStatus === "scanning" || scanStatus === "reading" ? (
+                              <Loader2 className="w-4 h-4 animate-spin text-orange-650" />
+                            ) : scanStatus === "error" ? (
+                              <AlertTriangle className="w-4 h-4 text-red-500" />
+                            ) : (
+                              <CheckCircle2 className="w-4 h-4 text-blue-600" />
+                            )}
+                            AI Semantic Ingestion Scan ({scanProgress}%)
+                          </span>
+                          {scanStatus !== "scanning" && scanStatus !== "reading" && (
+                            <button
+                              onClick={() => {
+                                setScanStatus("idle");
+                                setScanProgress(0);
+                                setScanLogs([]);
+                              }}
+                              className="text-[10px] font-bold text-orange-750 hover:text-orange-955 uppercase cursor-pointer"
+                            >
+                              Reset
+                            </button>
+                          )}
+                        </div>
+
+                        {/* Progress Bar */}
+                        <div className="w-full bg-zinc-200 h-1.5 rounded-full overflow-hidden">
+                          <div
+                            className="bg-[#1572FE] h-full transition-all duration-300"
+                            style={{ width: `${scanProgress}%` }}
+                          />
+                        </div>
+
+                        {/* Log Output */}
+                        <div className="max-h-24 overflow-y-auto bg-zinc-900 text-[10px] font-mono text-[#10b981] p-2.5 rounded-lg space-y-1">
+                          {scanLogs.map((log, idx) => (
+                            <div key={idx}>{log}</div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {incompleteRows.length > 0 && reviewMode === "teachers" && (
+                      <div className="p-3 rounded-xl border border-orange-200 bg-orange-50/50 flex items-center justify-between text-xs animate-fade-in">
+                        <span className="font-semibold text-orange-850">
+                          ⚠️ AI Scan complete: {incompleteRows.length} rows have missing values and require review.
+                        </span>
+                        <Button
+                          type="button"
+                          onClick={() => setIsReviewOpen(true)}
+                          className="h-8 bg-orange-600 hover:bg-orange-750 text-white font-bold text-[11px] px-3 rounded-lg"
+                        >
+                          Review & Complete
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+
                   {/* Quick Add Teacher Bar */}
                   <div className="flex flex-col sm:flex-row gap-3 items-end border border-zinc-200 rounded-xl p-4 bg-zinc-50/20">
                     <div className="flex-1 w-full space-y-1.5">
@@ -1191,7 +2045,7 @@ export default function OnboardingWizard() {
                     <Button
                       type="button"
                       onClick={handleAddTeacher}
-                      className="bg-[#064e3b] hover:bg-[#0f766e] text-white font-semibold h-10 px-5 flex items-center gap-1.5 w-full sm:w-auto"
+                      className="bg-[#1572FE] hover:bg-[#0f62d4] text-white font-semibold h-10 px-5 flex items-center gap-1.5 w-full sm:w-auto"
                     >
                       <Plus className="w-4 h-4" /> Add Teacher
                     </Button>
@@ -1212,7 +2066,7 @@ export default function OnboardingWizard() {
                                 type="text"
                                 value={teacher.name}
                                 onChange={(e) => handleUpdateTeacherName(teacher.id, e.target.value)}
-                                className="font-bold text-zinc-900 border-b border-dashed border-transparent hover:border-zinc-350 focus:border-[#064e3b] focus:outline-none text-xs bg-transparent"
+                                className="font-bold text-zinc-900 border-b border-dashed border-transparent hover:border-zinc-350 focus:border-[#1572FE] focus:outline-none text-xs bg-transparent"
                               />
                             </div>
                             <button
@@ -1231,7 +2085,7 @@ export default function OnboardingWizard() {
                                 <button
                                   type="button"
                                   onClick={() => handleAddAllocation(teacher.id)}
-                                  className="text-[10px] text-[#064e3b] hover:text-[#0f766e] font-bold uppercase transition-all flex items-center gap-1 cursor-pointer"
+                                  className="text-[10px] text-[#1572FE] hover:text-[#0f62d4] font-bold uppercase transition-all flex items-center gap-1 cursor-pointer"
                                 >
                                   <Plus className="w-3 h-3" /> Assign Subject
                                 </button>
@@ -1250,7 +2104,7 @@ export default function OnboardingWizard() {
                                           value={alloc.subjectName}
                                           onChange={(e) => handleUpdateSubjectName(teacher.id, aIdx, e.target.value)}
                                           placeholder="e.g. MATH_101"
-                                          className="w-full text-xs font-semibold text-zinc-800 border-b border-dashed border-transparent hover:border-zinc-350 focus:border-[#064e3b] focus:outline-none bg-transparent"
+                                          className="w-full text-xs font-semibold text-zinc-800 border-b border-dashed border-transparent hover:border-zinc-350 focus:border-[#1572FE] focus:outline-none bg-transparent"
                                         />
                                       </div>
 
@@ -1270,7 +2124,7 @@ export default function OnboardingWizard() {
                                                   onClick={() => handleToggleAllocationClass(teacher.id, aIdx, classKey)}
                                                   className={`px-2 py-0.5 rounded text-[10px] font-bold border transition-all cursor-pointer ${
                                                     isAllocated
-                                                      ? "bg-[#ecfdf5] text-[#064e3b] border-[#064e3b]"
+                                                      ? "bg-[#e6f0ff] text-[#1572FE] border-[#1572FE]"
                                                       : "bg-white text-zinc-400 border-zinc-200 hover:bg-zinc-50"
                                                   }`}
                                                 >
@@ -1305,7 +2159,7 @@ export default function OnboardingWizard() {
                 <Button variant="outline" onClick={() => setStep(2)} className="gap-1.5 w-full sm:w-auto cursor-pointer">
                   <ArrowLeft className="w-3.5 h-3.5" /> Back
                 </Button>
-                <Button onClick={handleStep3Next} className="gap-1.5 bg-[#064e3b] hover:bg-[#0f766e] active:bg-[#115e59] w-full sm:w-auto cursor-pointer">
+                <Button onClick={handleStep3Next} className="gap-1.5 bg-[#1572FE] hover:bg-[#0f62d4] active:bg-[#004dc5] w-full sm:w-auto cursor-pointer">
                   Next: Add Students <ArrowRight className="w-3.5 h-3.5" />
                 </Button>
               </CardFooter>
@@ -1327,32 +2181,141 @@ export default function OnboardingWizard() {
               </CardHeader>
               <CardContent className="p-4 sm:p-6 space-y-6">
                 
-                {/* Paste input container */}
-                <div className="space-y-1.5">
-                  <div className="flex justify-between items-center">
-                    <label className="text-xs font-bold text-zinc-800 flex items-center gap-1">
-                      <Clipboard className="w-4 h-4 text-emerald-800" /> Paste from Excel or Google Sheets
-                    </label>
+                {/* AI Semantic Ingestion Section */}
+                <div className="space-y-4 border border-[#fed7aa] bg-[#fff8f5] rounded-2xl p-4 sm:p-6 shadow-sm">
+                  <div className="flex items-center gap-2">
+                    <Sparkles className="w-5 h-5 text-orange-600" />
+                    <div>
+                      <h4 className="text-xs sm:text-sm font-bold text-zinc-900">AI Semantic Ingestion (Recommended)</h4>
+                      <p className="text-[11px] text-zinc-500">
+                        Upload your student spreadsheet or paste raw text. The AI will extract students, roll IDs, and parent details automatically.
+                      </p>
+                    </div>
                   </div>
-                  <textarea
-                    rows={5}
-                    value={pastedText}
-                    onChange={(e) => setPastedText(e.target.value)}
-                    placeholder="Name, Email, Roll, Class, Parent Name, Parent Email, Parent Phone&#10;Rahul Sharma, rahul@gmail.com, 1, 10A, Sanjay Sharma, sanjay@gmail.com, 9876543210&#10;Priya Patel, , , 9B, , , &#10;Siddharth Singh, , 3, 10A, , , "
-                    className="w-full text-xs font-mono p-3 border border-zinc-200 rounded-xl focus:border-[#064e3b] focus:ring-1 focus:ring-[#064e3b] bg-white outline-none"
-                  />
-                </div>
 
-                {/* Ingest and repair buttons */}
-                <div className="flex justify-end gap-3 flex-wrap">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => parseRosterData(pastedText)}
-                    className="gap-1.5 border-zinc-300 hover:border-[#064e3b] hover:bg-[#ecfdf5] text-[#064e3b] text-xs h-9"
-                  >
-                    <FileSpreadsheet className="w-4 h-4" /> Analyze & Auto-Repair Data
-                  </Button>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {/* Drag & Drop zone */}
+                    <div
+                      onDragOver={handleDragOver}
+                      onDragLeave={handleDragLeave}
+                      onDrop={handleDrop}
+                      className={`border-2 border-dashed rounded-xl p-4 text-center flex flex-col items-center justify-center gap-2 cursor-pointer transition-all ${
+                        isDragging
+                          ? "border-[#1572FE] bg-[#e6f0ff]"
+                          : "border-[#fed7aa]/60 bg-white"
+                      }`}
+                    >
+                      <input
+                        type="file"
+                        id="student-file-upload"
+                        className="hidden"
+                        accept=".xlsx,.xls,.csv"
+                        onChange={handleFileChange}
+                      />
+                      <label htmlFor="student-file-upload" className="w-full h-full flex flex-col items-center justify-center cursor-pointer gap-1">
+                        <Upload className="w-5 h-5 text-orange-655 mx-auto" />
+                        <span className="text-[11px] font-bold text-zinc-900 block mt-1">
+                          Upload Student Spreadsheet
+                        </span>
+                        <span className="text-[9px] text-zinc-400 block">
+                          Supports Excel (.xlsx, .xls) and CSV
+                        </span>
+                      </label>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-8 mt-1 border-orange-200 text-orange-700 hover:bg-orange-50 bg-white text-[10px]"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          document.getElementById("student-file-upload")?.click();
+                        }}
+                      >
+                        Choose File
+                      </Button>
+                    </div>
+
+                    {/* Paste textbox option */}
+                    <div className="space-y-2 flex flex-col">
+                      <textarea
+                        rows={3}
+                        value={pastedText}
+                        onChange={(e) => setPastedText(e.target.value)}
+                        placeholder="Paste student rows here...&#10;e.g. Rahul Sharma, rahul@gmail.com, 1, 10-A, Sanjay Sharma, sanjay@gmail.com, 9876543210&#10;Priya Patel, , , 9-B, , , "
+                        className="w-full text-xs font-mono p-2.5 border border-zinc-200 rounded-xl focus:border-[#1572FE] focus:ring-1 focus:ring-[#1572FE] bg-white outline-none flex-1 resize-none"
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => {
+                          processRosterPastedText(pastedText, "students");
+                        }}
+                        className="w-full h-8 text-[11px] border-orange-200 text-orange-700 hover:bg-orange-50 bg-white font-bold"
+                      >
+                        Scan Pasted Text with AI
+                      </Button>
+                    </div>
+                  </div>
+
+                  {/* Scan Progress & Logs for Step 4 */}
+                  {scanStatus !== "idle" && reviewMode === "students" && (
+                    <div className="p-4 rounded-xl border border-zinc-200 bg-[#fafafa] space-y-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-zinc-800 flex items-center gap-1.5">
+                          {scanStatus === "scanning" || scanStatus === "reading" ? (
+                            <Loader2 className="w-4 h-4 animate-spin text-orange-655" />
+                          ) : scanStatus === "error" ? (
+                            <AlertTriangle className="w-4 h-4 text-red-500" />
+                          ) : (
+                            <CheckCircle2 className="w-4 h-4 text-blue-600" />
+                          )}
+                          AI Semantic Ingestion Scan ({scanProgress}%)
+                        </span>
+                        {scanStatus !== "scanning" && scanStatus !== "reading" && (
+                          <button
+                            onClick={() => {
+                              setScanStatus("idle");
+                              setScanProgress(0);
+                              setScanLogs([]);
+                            }}
+                            className="text-[10px] font-bold text-orange-750 hover:text-orange-955 uppercase cursor-pointer"
+                          >
+                            Reset
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Progress Bar */}
+                      <div className="w-full bg-zinc-200 h-1.5 rounded-full overflow-hidden">
+                        <div
+                          className="bg-[#1572FE] h-full transition-all duration-300"
+                          style={{ width: `${scanProgress}%` }}
+                        />
+                      </div>
+
+                      {/* Log Output */}
+                      <div className="max-h-24 overflow-y-auto bg-zinc-900 text-[10px] font-mono text-[#10b981] p-2.5 rounded-lg space-y-1">
+                        {scanLogs.map((log, idx) => (
+                          <div key={idx}>{log}</div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {incompleteRows.length > 0 && reviewMode === "students" && (
+                    <div className="p-3 rounded-xl border border-orange-200 bg-orange-50/50 flex items-center justify-between text-xs animate-fade-in">
+                      <span className="font-semibold text-orange-850">
+                        ⚠️ AI Scan complete: {incompleteRows.length} rows have missing values and require review.
+                      </span>
+                      <Button
+                        type="button"
+                        onClick={() => setIsReviewOpen(true)}
+                        className="h-8 bg-orange-600 hover:bg-orange-750 text-white font-bold text-[11px] px-3 rounded-lg"
+                      >
+                        Review & Complete
+                      </Button>
+                    </div>
+                  )}
                 </div>
 
                 {/* Parsed results Preview table */}
@@ -1391,13 +2354,13 @@ export default function OnboardingWizard() {
                                 <div className="text-[10px] text-zinc-400 mt-0.5 flex items-center gap-1.5">
                                   <span>{s.email}</span>
                                   {s.repairedFields.emailGenerated && (
-                                    <span className="text-[8px] bg-emerald-50 border border-emerald-100 text-emerald-700 px-1 rounded uppercase font-bold">
+                                    <span className="text-[8px] bg-blue-50 border border-blue-100 text-blue-700 px-1 rounded uppercase font-bold">
                                       Auto-Email
                                     </span>
                                   )}
                                 </div>
                               </td>
-                              <td className="px-4 py-2.5 font-bold text-[#064e3b]">
+                              <td className="px-4 py-2.5 font-bold text-[#1572FE]">
                                 {s.gradeLevel.replace("Grade ", "")}-{s.section}
                               </td>
                               <td className="px-4 py-2.5">
@@ -1436,7 +2399,7 @@ export default function OnboardingWizard() {
                   <Button
                     onClick={handleCompleteLaunch}
                     disabled={loading}
-                    className="gap-2 bg-[#064e3b] hover:bg-[#0f766e] active:bg-[#115e59] shadow-md px-6 text-white font-bold w-full sm:w-auto"
+                    className="gap-2 bg-[#1572FE] hover:bg-[#0f62d4] active:bg-[#004dc5] shadow-md px-6 text-white font-bold w-full sm:w-auto"
                   >
                     {loading ? (
                       <>
@@ -1444,7 +2407,7 @@ export default function OnboardingWizard() {
                       </>
                     ) : (
                       <>
-                        <UserCheck className="w-4 h-4 text-emerald-50" /> Complete Launch
+                        <UserCheck className="w-4 h-4 text-blue-50" /> Complete Launch
                       </>
                     )}
                   </Button>
@@ -1458,8 +2421,8 @@ export default function OnboardingWizard() {
               ================================================================== */}
           {step === 5 && (
             <div className="p-8 text-center space-y-6 animate-fade-in">
-              <div className="mx-auto w-16 h-16 rounded-full bg-[#ecfdf5] border border-[#064e3b]/20 flex items-center justify-center text-[#064e3b] shadow-sm">
-                <CheckCircle2 className="w-10 h-10 text-emerald-800" />
+              <div className="mx-auto w-16 h-16 rounded-full bg-[#e6f0ff] border border-[#1572FE]/20 flex items-center justify-center text-[#1572FE] shadow-sm">
+                <CheckCircle2 className="w-10 h-10 text-blue-800" />
               </div>
               
               <div className="space-y-2">
@@ -1470,8 +2433,8 @@ export default function OnboardingWizard() {
               </div>
 
               {/* Credentials Highlight Block */}
-              <div className="max-w-md mx-auto bg-[#ecfdf5] border border-[#064e3b]/20 rounded-2xl p-6 text-center space-y-4 shadow-xs">
-                <span className="text-[10px] font-bold text-[#064e3b] uppercase tracking-widest block">ADMINISTRATOR CREDENTIALS</span>
+              <div className="max-w-md mx-auto bg-[#e6f0ff] border border-[#1572FE]/20 rounded-2xl p-6 text-center space-y-4 shadow-xs">
+                <span className="text-[10px] font-bold text-[#1572FE] uppercase tracking-widest block">ADMINISTRATOR CREDENTIALS</span>
                 
                 <div className="space-y-1">
                   <div className="text-[10px] uppercase font-semibold text-zinc-400">Username</div>
@@ -1482,7 +2445,7 @@ export default function OnboardingWizard() {
 
                 <div className="space-y-1">
                   <div className="text-[10px] uppercase font-semibold text-zinc-400">Security PIN (Password)</div>
-                  <div className="text-md font-bold text-[#064e3b] font-mono select-all bg-white py-1.5 px-4 rounded-lg border border-zinc-200 inline-block tracking-wider">
+                  <div className="text-md font-bold text-[#1572FE] font-mono select-all bg-white py-1.5 px-4 rounded-lg border border-zinc-200 inline-block tracking-wider">
                     {generatedPIN}
                   </div>
                 </div>
@@ -1511,7 +2474,7 @@ export default function OnboardingWizard() {
               <div className="pt-2 flex justify-center">
                 <Button
                   onClick={() => router.push("/login")}
-                  className="bg-[#064e3b] hover:bg-[#0f766e] text-white font-bold px-8 py-2.5 rounded-xl flex items-center gap-1.5 shadow-md cursor-pointer"
+                  className="bg-[#1572FE] hover:bg-[#0f62d4] text-white font-bold px-8 py-2.5 rounded-xl flex items-center gap-1.5 shadow-md cursor-pointer"
                 >
                   Go to Login Portal <ArrowRight className="w-4.5 h-4.5" />
                 </Button>
@@ -1519,6 +2482,123 @@ export default function OnboardingWizard() {
             </div>
           )}
         </Card>
+
+        {/* Peach-themed Action Center sidebar */}
+        {isReviewOpen && (
+          <div className="fixed inset-0 z-50 flex justify-end bg-zinc-900/50 backdrop-blur-xs animate-fade-in">
+            <div className="w-full max-w-2xl bg-[#fff8f5] border-l border-[#fed7aa] h-full shadow-2xl flex flex-col animate-slide-in relative">
+              <div className="p-4 sm:p-6 border-b border-[#fed7aa] bg-[#fff8f5] flex items-center justify-between">
+                <div>
+                  <h3 className="text-lg font-bold text-zinc-900 flex items-center gap-1.5">
+                    <Sparkles className="w-5 h-5 text-orange-600" /> AI Scan: Action Center
+                  </h3>
+                  <p className="text-xs text-zinc-500 mt-1">
+                    Please resolve the missing cells flagged below to proceed with database ingestion.
+                  </p>
+                </div>
+                <button
+                  onClick={() => setIsReviewOpen(false)}
+                  className="p-1 rounded-lg border border-zinc-200 bg-[#fafafa] hover:bg-zinc-100 text-zinc-500 cursor-pointer"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4">
+                {reviewRows.length === 0 ? (
+                  <div className="text-center p-8 text-zinc-400 text-xs font-medium border border-dashed border-[#fed7aa] rounded-xl bg-white/50">
+                    All records have been corrected! Click "Approve & Apply" below.
+                  </div>
+                ) : (
+                  reviewRows.map((row) => (
+                    <Card key={row._originalIndex} className="border border-[#fed7aa] shadow-xs rounded-xl overflow-hidden bg-[#fafafa]">
+                      <CardHeader className="p-3 bg-[#fff8f5]/50 border-b border-[#fed7aa] flex flex-row items-center justify-between">
+                        <span className="text-xs font-bold text-zinc-900">
+                          Row #{row._originalIndex + 1}: {row.student_name || row.teacher_name || "Unknown Record"}
+                        </span>
+                        <span className="text-[10px] bg-orange-100 text-orange-850 px-2 py-0.5 rounded-full font-bold uppercase">
+                          Incomplete
+                        </span>
+                      </CardHeader>
+                      <CardContent className="p-4 space-y-4">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                          {[
+                            ...(reviewMode === "teachers" ? [
+                              { field: "grade_level", label: "Grade Level", placeholder: "e.g. Grade 1" },
+                              { field: "section", label: "Section", placeholder: "e.g. A" },
+                              { field: "teacher_name", label: "Teacher Name", placeholder: "Susan Smith" },
+                              { field: "subject", label: "Subject", placeholder: "Maths" },
+                            ] : reviewMode === "students" ? [
+                              { field: "grade_level", label: "Grade Level", placeholder: "e.g. Grade 1" },
+                              { field: "section", label: "Section", placeholder: "e.g. A" },
+                              { field: "student_name", label: "Student Name", placeholder: "Rahul Sharma" },
+                              { field: "roll_id", label: "Roll ID", placeholder: "1", type: "number" },
+                              { field: "parent_name", label: "Parent Name", placeholder: "Sanjay Sharma" },
+                              { field: "parent_phone", label: "Parent Phone", placeholder: "9876543210" },
+                            ] : [
+                              { field: "school_name", label: "School Name", placeholder: "e.g. EduNexus Academy" },
+                              { field: "academic_year", label: "Academic Year", placeholder: "e.g. 2026-2027" },
+                              { field: "admin_name", label: "Admin Owner", placeholder: "e.g. Ashaz Shaikh" },
+                              { field: "grade_level", label: "Grade Level", placeholder: "e.g. Grade 1" },
+                              { field: "section", label: "Section", placeholder: "e.g. A" },
+                              { field: "base_fee", label: "Base Fee (₹)", placeholder: "e.g. 15000", type: "number" },
+                              { field: "teacher_name", label: "Teacher Name", placeholder: "Susan Smith" },
+                              { field: "subject", label: "Subject", placeholder: "Maths" },
+                              { field: "student_name", label: "Student Name", placeholder: "Rahul Sharma" },
+                              { field: "roll_id", label: "Roll ID", placeholder: "1", type: "number" },
+                              { field: "parent_name", label: "Parent Name", placeholder: "Sanjay Sharma" },
+                              { field: "parent_phone", label: "Parent Phone", placeholder: "9876543210" },
+                            ])
+                          ].map((cfg) => {
+                            const isMissing = row.missing_fields.includes(cfg.field);
+                            const isNumber = cfg.type === "number";
+                            
+                            return (
+                              <div key={cfg.field} className="space-y-1.5">
+                                <label className={`text-[11px] font-bold ${isMissing ? "text-red-650" : "text-zinc-650"}`}>
+                                  {cfg.label} {isMissing && "*"}
+                                </label>
+                                <Input
+                                  type={isNumber ? "number" : "text"}
+                                  value={row[cfg.field] === null || row[cfg.field] === undefined ? "" : row[cfg.field]}
+                                  placeholder={cfg.placeholder}
+                                  onChange={(e) => {
+                                    const val = isNumber ? (e.target.value === "" ? null : Number(e.target.value)) : e.target.value;
+                                    handleIncompleteRowChange(row._originalIndex, cfg.field, val);
+                                  }}
+                                  className={`h-8 text-xs ${
+                                    isMissing ? "border-red-400 focus:border-red-400 focus:ring-red-400/20 bg-red-50/50" : "border-[#fed7aa]/50"
+                                  }`}
+                                />
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))
+                )}
+              </div>
+
+              <div className="p-4 sm:p-6 border-t border-[#fed7aa] bg-[#fff8f5] flex justify-between items-center">
+                <span className="text-xs font-semibold text-zinc-550">
+                  {reviewRows.filter(r => r.missing_fields.length > 0).length} record(s) remaining
+                </span>
+                <Button
+                  onClick={handleApplyCorrections}
+                  disabled={reviewRows.some(r => r.missing_fields.length > 0)}
+                  className={`font-bold text-xs px-6 py-2.5 rounded-xl shadow cursor-pointer ${
+                    reviewRows.some(r => r.missing_fields.length > 0)
+                      ? "bg-zinc-200 text-zinc-400 cursor-not-allowed"
+                      : "bg-[#1572FE] hover:bg-[#0f62d4] text-white"
+                  }`}
+                >
+                  Approve & Apply
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

@@ -12,7 +12,7 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
       <button
         ref={ref}
         className={cn(
-          "inline-flex items-center justify-center font-medium transition-all duration-150 focus:outline-none focus:ring-2 focus:ring-emerald-600 focus:ring-offset-2 disabled:opacity-50 disabled:pointer-events-none cursor-pointer",
+          "inline-flex items-center justify-center font-medium transition-all duration-150 focus:outline-none focus:ring-2 focus:ring-[#1572FE] focus:ring-offset-2 disabled:opacity-50 disabled:pointer-events-none cursor-pointer",
           // Centralized Classes mapped to design tokens
           variant === "primary" && "btn-primary",
           variant === "secondary" && "btn-secondary",

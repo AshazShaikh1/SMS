@@ -94,7 +94,7 @@ export default function TeacherOverview() {
         <Card className="border border-zinc-200">
           <CardHeader className="flex flex-row items-center justify-between pb-2 p-5 border-none">
             <CardTitle className="text-xs font-semibold uppercase tracking-wider text-zinc-400">Your Subject</CardTitle>
-            <div className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-950 flex items-center justify-center">
+            <div className="w-8 h-8 rounded-lg bg-blue-50 text-emerald-950 flex items-center justify-center">
               <BookOpen className="w-4 h-4" />
             </div>
           </CardHeader>
@@ -159,7 +159,7 @@ export default function TeacherOverview() {
                   href={`/teacher/attendance?grade=${item.grade}&section=${item.section}`}
                   className="flex-1"
                 >
-                  <Button variant="outline" size="sm" className="w-full gap-2 border-zinc-250 hover:bg-emerald-50/20 hover:border-emerald-600 hover:text-emerald-950">
+                  <Button variant="outline" size="sm" className="w-full gap-2 border-zinc-250 hover:bg-blue-50/20 hover:border-[#1572FE] hover:text-[#1572FE]">
                     <ClipboardCheck className="w-4 h-4" /> Take Attendance
                   </Button>
                 </Link>

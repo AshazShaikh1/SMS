@@ -219,11 +219,11 @@ export default function DeveloperDashboard() {
       {/* Toast Banner */}
       {toast && (
         <div className={`p-4 rounded-xl border text-xs font-semibold animate-fade-in flex items-center gap-2.5 shadow-sm max-w-xl mx-auto ${
-          toast.type === "success" ? "bg-emerald-50 border-emerald-250 text-emerald-950" :
+          toast.type === "success" ? "bg-blue-50 border-blue-250 text-emerald-950" :
           toast.type === "error" ? "bg-red-50 border-red-200 text-red-750" :
           "bg-amber-50 border-amber-200 text-amber-800"
         }`}>
-          {toast.type === "success" ? <CheckCircle2 className="w-4.5 h-4.5 text-emerald-700 shrink-0" /> : <AlertTriangle className="w-4.5 h-4.5 shrink-0" />}
+          {toast.type === "success" ? <CheckCircle2 className="w-4.5 h-4.5 text-blue-700 shrink-0" /> : <AlertTriangle className="w-4.5 h-4.5 shrink-0" />}
           <span>{toast.message}</span>
         </div>
       )}
@@ -264,7 +264,7 @@ export default function DeveloperDashboard() {
           </CardHeader>
           <CardContent className="p-4 pt-0">
             <div className="text-2xl font-black text-zinc-900">{stats.dbLatency}ms Latency</div>
-            <p className="text-[10px] text-zinc-500 mt-1 font-medium">Status: <span className="text-emerald-700 font-bold">{stats.dbStatus}</span> | {stats.connections} Active Pools</p>
+            <p className="text-[10px] text-zinc-500 mt-1 font-medium">Status: <span className="text-blue-700 font-bold">{stats.dbStatus}</span> | {stats.connections} Active Pools</p>
           </CardContent>
         </Card>
 

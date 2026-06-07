@@ -368,7 +368,7 @@ function GradingMatrixContent() {
 
       {/* Add Assessment column Form overlay */}
       {showAddAsm && (
-        <Card className="border border-emerald-600 bg-emerald-50/5 animate-fade-in">
+        <Card className="border border-emerald-600 bg-blue-50/5 animate-fade-in">
           <form onSubmit={handleCreateAssessmentSubmit}>
             <CardHeader className="p-5 border-b border-zinc-200">
               <CardTitle className="text-sm font-semibold flex items-center gap-2">

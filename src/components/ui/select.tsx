@@ -57,7 +57,7 @@ export const Select = React.forwardRef<HTMLDivElement, SelectProps>(
           disabled={disabled}
           onClick={() => setIsOpen(!isOpen)}
           className={cn(
-            "flex w-full items-center justify-between rounded-xl border border-[#d4d4d8] bg-[#FFFFFF] px-4 py-2.5 text-sm text-[#09090b] shadow-sm focus:outline-none focus:ring-2 focus:ring-[rgba(6,78,59,0.15)] focus:border-[#064e3b] transition-all cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 text-left",
+            "flex w-full items-center justify-between rounded-xl border border-[#d4d4d8] bg-[#FFFFFF] px-4 py-2.5 text-sm text-[#09090b] shadow-sm focus:outline-none focus:ring-2 focus:ring-[rgba(21,114,254,0.15)] focus:border-[#1572FE] transition-all cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 text-left",
             className
           )}
         >
@@ -84,11 +84,11 @@ export const Select = React.forwardRef<HTMLDivElement, SelectProps>(
                     onClick={() => handleSelect(opt.value)}
                     className={cn(
                       "flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm text-[#52525b] hover:bg-[#F4F4F5] hover:text-[#09090b] transition-colors text-left font-medium cursor-pointer",
-                      isSelected && "bg-[#ecfdf5] text-[#064e3b] hover:bg-[#ecfdf5]"
+                      isSelected && "bg-[#e6f0ff] text-[#1572FE] hover:bg-[#e6f0ff]"
                     )}
                   >
                     <span className="truncate">{opt.label}</span>
-                    {isSelected && <Check className="w-4 h-4 text-[#064e3b] shrink-0 ml-2" />}
+                    {isSelected && <Check className="w-4 h-4 text-[#1572FE] shrink-0 ml-2" />}
                   </button>
                 );
               })

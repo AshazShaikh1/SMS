@@ -10,7 +10,7 @@
   --popover: #FFFFFF;
   --popover-foreground: #09090b;
   
-  --primary: #064e3b;
+  --primary: #1572FE;
   --primary-foreground: #FFFFFF;
   
   --secondary: #F4F4F5;
@@ -19,12 +19,12 @@
   --muted: #F4F4F5;
   --muted-foreground: #a1a1aa;
   
-  --accent: #ecfdf5;
-  --accent-foreground: #064e3b;
+  --accent: #e6f0ff;
+  --accent-foreground: #1572FE;
   
   --border: #E4E4E7;
   --input: #d4d4d8;
-  --ring: #064e3b;
+  --ring: #1572FE;
   
   --radius: 0.5rem;
 }
@@ -155,7 +155,7 @@ body {
 
 /* Centralized Global CSS Theme Classes */
 .bg-app-base {
-  background: radial-gradient(circle at 10% 20%, rgba(16, 185, 129, 0.08) 0%, transparent 50%), radial-gradient(circle at 90% 80%, rgba(245, 158, 11, 0.08) 0%, transparent 50%), #FAF9F6 !important; /* Premium Soft Bone White */
+  background: radial-gradient(circle at 10% 20%, rgba(21, 114, 254, 0.05) 0%, transparent 50%), radial-gradient(circle at 90% 80%, rgba(16, 185, 129, 0.05) 0%, transparent 50%), #FAF9F6 !important; /* Premium Soft Bone White */
 }
 
 .card-premium {
@@ -164,7 +164,7 @@ body {
   border-style: solid;
   border-color: #E4E4E7; /* Clean Border Structural Color */
   border-radius: 1.25rem; /* rounded-2xl */
-  box-shadow: 0 10px 25px -5px rgba(6, 78, 59, 0.03), 0 8px 10px -6px rgba(6, 78, 59, 0.03); /* subtle emerald shadow lift */
+  box-shadow: 0 10px 25px -5px rgba(21, 114, 254, 0.02), 0 8px 10px -6px rgba(21, 114, 254, 0.02); /* subtle blue shadow lift */
   overflow: visible;
   transition-property: all;
   transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
@@ -172,7 +172,7 @@ body {
 }
 .card-premium:hover {
   transform: translateY(-2px);
-  box-shadow: 0 20px 25px -5px rgba(6, 78, 59, 0.06), 0 10px 10px -5px rgba(6, 78, 59, 0.04);
+  box-shadow: 0 20px 25px -5px rgba(21, 114, 254, 0.04), 0 10px 10px -5px rgba(21, 114, 254, 0.03);
   border-color: #d4d4d8; /* subtle hover border */
 }
 
@@ -184,14 +184,14 @@ body {
   border-left: 4px solid #F59E0B !important; /* Warning State */
 }
 .card-accent-indigo {
-  border-left: 4px solid #0d9488 !important; /* Info Notification State */
+  border-left: 4px solid #1572FE !important; /* Info Notification State */
 }
 .card-accent-rose {
   border-left: 4px solid #EF4444 !important; /* Error/Danger State */
 }
 
 .btn-primary {
-  background: #064e3b !important; /* Flagship Deep Emerald */
+  background: #1572FE !important; /* Flagship Confident Modern Blue */
   color: #FFFFFF !important;
   font-weight: 600 !important;
   border-radius: 0.75rem !important; /* rounded-xl */
@@ -199,22 +199,22 @@ body {
   padding-right: 1.5rem !important;
   padding-top: 0.75rem !important;
   padding-bottom: 0.75rem !important;
-  box-shadow: 0 4px 14px 0 rgba(6, 78, 59, 0.2) !important;
+  box-shadow: 0 4px 14px 0 rgba(21, 114, 254, 0.2) !important;
   transition: all 200ms ease !important;
-  border: 1px solid #064e3b !important;
+  border: 1px solid #1572FE !important;
   display: inline-flex;
   align-items: center;
   justify-content: center;
 }
 .btn-primary:hover {
-  background: #0f766e !important; /* Teal Emerald */
-  border-color: #0f766e !important;
-  box-shadow: 0 6px 20px 0 rgba(15, 118, 110, 0.3) !important;
+  background: #0f62d4 !important; /* Slightly darker blue */
+  border-color: #0f62d4 !important;
+  box-shadow: 0 6px 20px 0 rgba(15, 98, 212, 0.3) !important;
   transform: translateY(-1px);
 }
 .btn-primary:active {
-  background: #115e59 !important; /* Active Click */
-  border-color: #115e59 !important;
+  background: #004dc5 !important; /* Active Click */
+  border-color: #004dc5 !important;
   transform: translateY(0px) scale(0.98) !important;
 }
 
@@ -258,6 +258,33 @@ body {
 .input-premium:focus {
   outline: 2px solid transparent !important;
   outline-offset: 2px !important;
-  box-shadow: 0 0 0 2px rgba(6, 78, 59, 0.15) !important; /* Input Active Focus Shadow Ring */
-  border-color: #064e3b !important; /* Input Active Focus Border */
+  box-shadow: 0 0 0 2px rgba(21, 114, 254, 0.15) !important; /* Input Active Focus Shadow Ring */
+  border-color: #1572FE !important; /* Input Active Focus Border */
 }
+
+@keyframes slideIn {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.animate-slide-in {
+  animation: slideIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.2s ease-out forwards;
+}
+

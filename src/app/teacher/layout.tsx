@@ -30,12 +30,10 @@ export default function TeacherLayout({
       <header className="hidden md:block border-b border-[#E4E4E7] bg-white/95 backdrop-blur-md sticky top-0 z-50 shadow-xs">
         <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-[#022c22] flex items-center justify-center text-white font-bold shadow-xs">
-              T
-            </div>
+            <img src="/logo.svg" alt="EduNexus" className="h-8 w-auto object-contain" />
             <div>
               <span className="font-semibold text-zinc-900 tracking-tight block leading-none">Teacher Dashboard</span>
-              <span className="text-[9px] text-[#064e3b] font-medium">Welcome back</span>
+              <span className="text-[9px] text-[#1572FE] font-medium mt-0.5">Welcome back</span>
             </div>
           </div>
 
@@ -50,7 +48,7 @@ export default function TeacherLayout({
                   href={item.href}
                   className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold tracking-wide transition-all ${
                     isActive
-                      ? "bg-[#064e3b] text-white shadow-xs"
+                      ? "bg-[#1572FE] text-white shadow-xs"
                       : "text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900"
                   }`}
                 >
@@ -74,12 +72,10 @@ export default function TeacherLayout({
       {/* Mobile Top Header (visible on < md) */}
       <header className="border-b border-[#E4E4E7] bg-white/95 backdrop-blur-md sticky top-0 z-50 shadow-xs h-14 flex items-center justify-between px-5 md:hidden">
         <div className="flex items-center gap-2">
-          <div className="w-7 h-7 rounded-lg bg-[#022c22] flex items-center justify-center text-white font-bold text-sm shadow-xs">
-            T
-          </div>
+          <img src="/logo.svg" alt="EduNexus" className="h-7 w-auto object-contain" />
           <span className="font-semibold text-zinc-900 tracking-tight text-sm">Teacher Dashboard</span>
         </div>
-        <Badge variant="primary" className="py-0.5 px-2 font-normal text-[10px]">
+        <Badge variant="primary" className="py-0.5 px-2 font-normal text-[10px] bg-[#1572FE] hover:bg-[#1572FE] text-white">
           Teacher
         </Badge>
       </header>
@@ -94,7 +90,7 @@ export default function TeacherLayout({
               key={item.name}
               href={item.href}
               className={`flex flex-col items-center justify-center flex-1 h-full py-1 text-center transition-all ${
-                isActive ? "text-[#064e3b]" : "text-[#a1a1aa] hover:text-zinc-600"
+                isActive ? "text-[#1572FE]" : "text-[#a1a1aa] hover:text-zinc-600"
               }`}
             >
               <Icon className="w-5 h-5" />

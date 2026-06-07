@@ -296,7 +296,7 @@ export default function ParentDashboard() {
             <CardContent className="p-5 pt-0 space-y-4">
               {detailsLoading ? (
                 <div className="flex justify-center items-center py-8">
-                  <Loader2 className="w-6 h-6 animate-spin text-[#064e3b]" />
+                  <Loader2 className="w-6 h-6 animate-spin text-[#1572FE]" />
                 </div>
               ) : (
                 <>
@@ -362,7 +362,7 @@ export default function ParentDashboard() {
                         </span>
                       </div>
                       <div className="text-right space-y-1">
-                        <Badge className="bg-emerald-50 text-emerald-700 border border-emerald-200 text-[9.5px] font-bold py-0.5 px-1.5">
+                        <Badge className="bg-blue-50 text-blue-700 border border-blue-200 text-[9.5px] font-bold py-0.5 px-1.5">
                           Success
                         </Badge>
                         <span className="text-[9px] text-zinc-400 block font-medium">
@@ -389,7 +389,7 @@ export default function ParentDashboard() {
             <CardContent className="p-5 pt-0 space-y-4">
               {detailsLoading ? (
                 <div className="flex justify-center items-center py-8">
-                  <Loader2 className="w-6 h-6 animate-spin text-[#064e3b]" />
+                  <Loader2 className="w-6 h-6 animate-spin text-[#1572FE]" />
                 </div>
               ) : (
                 <>
@@ -409,7 +409,7 @@ export default function ParentDashboard() {
                           d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
                         />
                         <path
-                          className="text-[#064e3b]"
+                          className="text-[#1572FE]"
                           strokeWidth="3.5"
                           strokeDasharray={`${attendanceRate || 0}, 100`}
                           strokeLinecap="round"
@@ -423,7 +423,7 @@ export default function ParentDashboard() {
 
                   {attendanceStats && (
                     <div className="grid grid-cols-3 gap-2 pt-3 border-t border-zinc-150 text-center text-xs">
-                      <div className="bg-emerald-50/50 p-2 rounded-xl border border-emerald-100/30">
+                      <div className="bg-blue-50/50 p-2 rounded-xl border border-blue-100/30">
                         <span className="text-zinc-400 text-[9px] uppercase font-bold tracking-wider block">Present</span>
                         <span className="font-bold text-zinc-800">{attendanceStats.present} day(s)</span>
                       </div>
@@ -458,7 +458,7 @@ export default function ParentDashboard() {
             <CardContent className="p-5 pt-0 space-y-5">
               {detailsLoading ? (
                 <div className="flex justify-center items-center py-8">
-                  <Loader2 className="w-6 h-6 animate-spin text-[#064e3b]" />
+                  <Loader2 className="w-6 h-6 animate-spin text-[#1572FE]" />
                 </div>
               ) : (
                 <>
@@ -466,7 +466,7 @@ export default function ParentDashboard() {
                   <div className="hidden print:block border-b border-zinc-250 pb-3 mb-4 text-xs text-zinc-600">
                     <div className="flex justify-between items-end">
                       <div>
-                        <h2 className="text-lg font-bold text-zinc-900 leading-none">Antigravity School Academy</h2>
+                        <h2 className="text-lg font-bold text-zinc-900 leading-none">EduNexus Academy</h2>
                         <span className="text-[10px] text-zinc-405 block mt-0.5">Unified Grade Scorecard System</span>
                       </div>
                       <div className="text-right">
@@ -526,7 +526,7 @@ export default function ParentDashboard() {
           </Card>
 
           {/* Print/Save Scorecard Button */}
-          <Button onClick={handlePrintScorecard} variant="outline" className="w-full gap-2 border-zinc-250 hover:bg-emerald-50/20 hover:border-emerald-600 hover:text-emerald-950 font-semibold shadow-xs cursor-pointer">
+          <Button onClick={handlePrintScorecard} variant="outline" className="w-full gap-2 border-zinc-250 hover:bg-blue-50/20 hover:border-[#1572FE] hover:text-[#1572FE] font-semibold shadow-xs cursor-pointer">
             <Download className="w-4 h-4" /> Compile Term 1 Report (Save PDF)
           </Button>
         </div>

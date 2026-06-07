@@ -221,7 +221,7 @@ export default function StudentDashboard() {
           ))}
 
           {/* Normal schedule streams */}
-          <div className="flex-none bg-emerald-50 text-emerald-950 border border-emerald-250/30 rounded-lg p-3 text-xs min-w-[160px] shadow-xs">
+          <div className="flex-none bg-blue-50 text-emerald-950 border border-blue-250/30 rounded-lg p-3 text-xs min-w-[160px] shadow-xs">
             <span className="font-semibold block text-emerald-850">09:00 AM - 10:15 AM</span>
             <span className="font-medium text-zinc-900 mt-1 block">Math (Room 4)</span>
             <Badge variant="primary" className="mt-1.5 py-0 px-1 text-[9px] font-bold">Active Now</Badge>
@@ -289,7 +289,7 @@ export default function StudentDashboard() {
       <Card className="border border-zinc-200 shadow-xs w-full">
         <CardHeader className="p-5 pb-3">
           <CardTitle className="text-xs font-semibold uppercase tracking-wider text-zinc-400 flex items-center gap-2">
-            <Award className="w-4 h-4 text-[#064e3b] shrink-0" /> Your Classes & Grades
+            <Award className="w-4 h-4 text-[#1572FE] shrink-0" /> Your Classes & Grades
           </CardTitle>
         </CardHeader>
         <CardContent className="p-5 pt-0 space-y-5">

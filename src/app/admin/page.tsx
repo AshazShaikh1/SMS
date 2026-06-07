@@ -657,9 +657,7 @@ export default function AdminDashboard() {
       {isMaterializing && (
         <div className="fixed inset-0 bg-white/95 backdrop-blur-md z-50 flex items-center justify-center p-6 animate-fade-in">
           <div className="max-w-md w-full text-center space-y-6">
-            <div className="mx-auto w-16 h-16 rounded-3xl bg-[#064e3b] text-white flex items-center justify-center font-bold shadow-lg text-xl animate-pulse">
-              S
-            </div>
+            <img src="/logo.svg" alt="EduNexus" className="mx-auto h-16 w-auto object-contain animate-pulse" />
             <div className="space-y-2">
               <h2 className="text-xl font-bold text-zinc-900 tracking-tight">Materializing School Databases</h2>
               <p className="text-xs text-zinc-505 font-light max-w-xs mx-auto">
@@ -669,11 +667,11 @@ export default function AdminDashboard() {
             
             {/* Progress Bar Loader */}
             <div className="relative w-full h-1.5 bg-zinc-100 rounded-full overflow-hidden border border-zinc-200/50">
-              <div className="absolute top-0 bottom-0 left-0 bg-[#064e3b] rounded-full w-[80%] animate-pulse"></div>
+              <div className="absolute top-0 bottom-0 left-0 bg-[#1572FE] rounded-full w-[80%] animate-pulse"></div>
             </div>
 
-            <div className="flex items-center justify-center gap-2 text-xs text-zinc-650 font-medium bg-[#ecfdf5] border border-[#064e3b]/10 py-2.5 px-4 rounded-xl">
-              <Loader2 className="w-4 h-4 animate-spin text-[#064e3b]" />
+            <div className="flex items-center justify-center gap-2 text-xs text-zinc-650 font-medium bg-[#e6f0ff] border border-[#1572FE]/10 py-2.5 px-4 rounded-xl">
+              <Loader2 className="w-4 h-4 animate-spin text-[#1572FE]" />
               <span>{materializingStatus}</span>
             </div>
           </div>
@@ -685,18 +683,18 @@ export default function AdminDashboard() {
         <div className="bg-red-50 border border-red-200 text-red-750 text-xs rounded-2xl p-4 flex flex-col gap-2 shadow-xs">
           <div className="font-bold flex items-center gap-1">⚠️ Setup Could Not Complete</div>
           <div className="whitespace-pre-wrap leading-relaxed font-mono text-[11px] bg-white/50 p-2.5 rounded-lg border border-red-150">{materializationError}</div>
-          <p className="text-[10px] text-zinc-505 font-medium">Please verify your Supabase database migrations and schema RLS boundaries, then reload the dashboard to retry the setup.</p>
+          <p className="text-[10px] text-zinc-550 font-medium">Please verify your Supabase database migrations and schema RLS boundaries, then reload the dashboard to retry the setup.</p>
         </div>
       )}
 
       {/* Ledger Credentials Download Banner */}
       {showLedgerBanner && (
-        <div className="bg-[#ecfdf5] border border-emerald-250 rounded-2xl p-5 flex flex-col md:flex-row md:items-center md:justify-between gap-4 shadow-sm animate-fade-in">
+        <div className="bg-[#e6f0ff] border border-blue-200 rounded-2xl p-5 flex flex-col md:flex-row md:items-center md:justify-between gap-4 shadow-sm animate-fade-in">
           <div className="space-y-1">
-            <h4 className="text-sm font-bold text-emerald-950 flex items-center gap-1.5">
+            <h4 className="text-sm font-bold text-blue-950 flex items-center gap-1.5">
               <span>🎉</span> Onboarding Complete!
             </h4>
-            <p className="text-xs text-[#064e3b]/85 leading-relaxed font-light">
+            <p className="text-xs text-[#1572FE]/85 leading-relaxed font-light">
               We have successfully provisioned accounts for all students, parents, and teachers. Download the credentials ledger below to distribute them.
             </p>
           </div>
@@ -704,7 +702,7 @@ export default function AdminDashboard() {
             <Button
               onClick={downloadCSV}
               size="sm"
-              className="bg-[#064e3b] hover:bg-[#0f766e] text-white font-bold gap-1.5 cursor-pointer text-xs h-9"
+              className="bg-[#1572FE] hover:bg-[#0f62d4] text-white font-bold gap-1.5 cursor-pointer text-xs h-9"
             >
               Download Ledger (.CSV)
             </Button>
@@ -712,7 +710,7 @@ export default function AdminDashboard() {
               onClick={handleDismissBanner}
               size="sm"
               variant="outline"
-              className="border-emerald-200 text-[#064e3b] hover:bg-emerald-100/30 cursor-pointer text-xs h-9"
+              className="border-blue-250 text-[#1572FE] hover:bg-blue-100/30 cursor-pointer text-xs h-9"
             >
               Dismiss
             </Button>
@@ -745,7 +743,7 @@ export default function AdminDashboard() {
         <div className="bg-white border border-zinc-200/50 rounded-2xl p-6 shadow-sm flex flex-col justify-between card-accent-emerald">
           <div className="flex items-center justify-between pb-2 border-none">
             <span className="text-xs font-bold uppercase tracking-wider text-zinc-400">Total Enrolled Students</span>
-            <div className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-950 flex items-center justify-center shadow-xs">
+            <div className="w-8 h-8 rounded-lg bg-blue-50 text-emerald-950 flex items-center justify-center shadow-xs">
               <Users className="w-4 h-4" />
             </div>
           </div>
@@ -816,7 +814,7 @@ export default function AdminDashboard() {
                         </td>
                         <td className="px-6 py-4">
                           <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 bg-emerald-50 text-emerald-800 font-semibold flex items-center justify-center rounded-full text-sm uppercase shrink-0 shadow-sm border border-emerald-100 animate-pulse">
+                            <div className="w-10 h-10 bg-blue-50 text-blue-800 font-semibold flex items-center justify-center rounded-full text-sm uppercase shrink-0 shadow-sm border border-blue-100 animate-pulse">
                               {student.personal_details.first_name[0]}
                             </div>
                             <div>
@@ -845,7 +843,7 @@ export default function AdminDashboard() {
                             </button>
                             <Link
                               href={`/admin/finance?studentId=${student._id}`}
-                              className="inline-flex items-center gap-1.5 text-emerald-800 hover:text-emerald-950 font-bold transition-colors"
+                              className="inline-flex items-center gap-1.5 text-blue-800 hover:text-emerald-950 font-bold transition-colors"
                             >
                               <FileEdit className="w-3.5 h-3.5" /> Edit Fees
                             </Link>
@@ -873,7 +871,7 @@ export default function AdminDashboard() {
                   <div key={student._id} className="p-4 space-y-4 bg-white border border-zinc-100 rounded-xl">
                     <div className="flex justify-between items-start">
                       <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 bg-emerald-50 text-emerald-800 font-semibold flex items-center justify-center rounded-full text-xs uppercase shadow-sm border border-emerald-100">
+                        <div className="w-10 h-10 bg-blue-50 text-blue-800 font-semibold flex items-center justify-center rounded-full text-xs uppercase shadow-sm border border-blue-100">
                           {student.personal_details.first_name[0]}
                         </div>
                         <div>
@@ -899,12 +897,12 @@ export default function AdminDashboard() {
                           size="sm"
                           variant="outline"
                           onClick={() => setSelectedPaymentStudent(student)}
-                          className="gap-1.5 px-3 py-1.5 h-8 text-xs border-zinc-250 hover:bg-orange-50/20 hover:border-orange-600 hover:text-orange-950 font-semibold cursor-pointer"
+                          className="gap-1.5 px-3 py-1.5 h-8 text-xs border-zinc-250 hover:bg-blue-50/20 hover:border-[#1572FE] hover:text-[#1572FE] font-semibold cursor-pointer"
                         >
                           Record Payment
                         </Button>
                         <Link href={`/admin/finance?studentId=${student._id}`}>
-                          <Button size="sm" variant="outline" className="gap-1.5 px-3 py-1.5 h-8 text-xs border-zinc-250 hover:bg-emerald-50/20 hover:border-emerald-600 hover:text-emerald-950 font-semibold">
+                          <Button size="sm" variant="outline" className="gap-1.5 px-3 py-1.5 h-8 text-xs border-zinc-250 hover:bg-blue-50/20 hover:border-[#1572FE] hover:text-[#1572FE] font-semibold">
                             <FileEdit className="w-3.5 h-3.5" /> Edit Fees
                           </Button>
                         </Link>
@@ -933,7 +931,7 @@ export default function AdminDashboard() {
                 <Link href="/admin/intake" className="w-full">
                   <button className="w-full text-left rounded-xl px-4 py-3 font-medium transition-all hover:shadow-md border border-zinc-200 bg-white hover:bg-zinc-50 text-zinc-700 hover:-translate-y-0.5 flex items-center justify-between text-xs cursor-pointer">
                     <span className="flex items-center gap-2">
-                      <UserPlus className="w-4 h-4 text-emerald-800" />
+                      <UserPlus className="w-4 h-4 text-blue-800" />
                       Add Student List (CSV)
                     </span>
                     <ChevronRight className="w-4 h-4 text-zinc-400" />
@@ -943,7 +941,7 @@ export default function AdminDashboard() {
                 <Link href="/admin/finance" className="w-full">
                   <button className="w-full text-left rounded-xl px-4 py-3 font-medium transition-all hover:shadow-md border border-zinc-200 bg-white hover:bg-zinc-50 text-zinc-700 hover:-translate-y-0.5 flex items-center justify-between text-xs cursor-pointer">
                     <span className="flex items-center gap-2">
-                      <Wallet className="w-4 h-4 text-emerald-800" />
+                      <Wallet className="w-4 h-4 text-blue-800" />
                       Edit Fees & Discounts
                     </span>
                     <ChevronRight className="w-4 h-4 text-zinc-400" />
