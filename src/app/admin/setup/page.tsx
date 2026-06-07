@@ -66,7 +66,6 @@ export default function OnboardingWizard() {
   // STEP 3: Global Faculty Multi-Subject Matrix
   const [teachers, setTeachers] = useState<{ id: string; name: string; allocations: { subjectName: string; classes: string[] }[] }[]>([]);
   const [newTeacherName, setNewTeacherName] = useState("");
-  const [step3Mode, setStep3Mode] = useState<"manual" | "upload">("manual");
   const [skippedRowsWarning, setSkippedRowsWarning] = useState<string[]>([]);
   const [generatedUsername, setGeneratedUsername] = useState("");
   const [generatedPIN, setGeneratedPIN] = useState("");
@@ -689,18 +688,7 @@ export default function OnboardingWizard() {
     });
   };
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
 
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const text = event.target?.result as string;
-      setPastedText(text);
-      parseRosterData(text);
-    };
-    reader.readAsText(file);
-  };
 
   // --------------------------------------------------------------------------
   // Phase 1 Onboarding Launch (Writes Admin, School, and staging payload)
@@ -1183,261 +1171,135 @@ export default function OnboardingWizard() {
                 </CardDescription>
               </CardHeader>
               <CardContent className="p-4 sm:p-6 space-y-6">
-                {/* Tab Toggle for Step 3 Mode */}
-                <div className="flex border-b border-zinc-200">
-                  <button
-                    type="button"
-                    onClick={() => setStep3Mode("manual")}
-                    className={`flex-1 pb-3 text-center text-xs font-bold border-b-2 transition-all flex items-center justify-center gap-2 cursor-pointer ${
-                      step3Mode === "manual"
-                        ? "border-[#064e3b] text-[#064e3b]"
-                        : "border-transparent text-zinc-400 hover:text-zinc-650"
-                    }`}
-                  >
-                    ✍️ Add Manually
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setStep3Mode("upload")}
-                    className={`flex-1 pb-3 text-center text-xs font-bold border-b-2 transition-all flex items-center justify-center gap-2 cursor-pointer ${
-                      step3Mode === "upload"
-                        ? "border-[#064e3b] text-[#064e3b]"
-                        : "border-transparent text-zinc-400 hover:text-zinc-650"
-                    }`}
-                  >
-                    📄 Upload File
-                  </button>
-                </div>
-
-                {step3Mode === "manual" ? (
-                  <div className="space-y-6">
-                    {/* Quick Add Teacher Bar */}
-                    <div className="flex flex-col sm:flex-row gap-3 items-end border border-zinc-200 rounded-xl p-4 bg-zinc-50/20">
-                      <div className="flex-1 w-full space-y-1.5">
-                        <label className="text-xs font-bold text-zinc-800">Teacher Full Name</label>
-                        <Input
-                          value={newTeacherName}
-                          onChange={(e) => setNewTeacherName(e.target.value)}
-                          placeholder="e.g. Mrs. Susan Smith"
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") {
-                              e.preventDefault();
-                              handleAddTeacher();
-                            }
-                          }}
-                        />
-                      </div>
-                      <Button
-                        type="button"
-                        onClick={handleAddTeacher}
-                        className="bg-[#064e3b] hover:bg-[#0f766e] text-white font-semibold h-10 px-5 flex items-center gap-1.5 w-full sm:w-auto"
-                      >
-                        <Plus className="w-4 h-4" /> Add Teacher
-                      </Button>
-                    </div>
-
-                    {/* Teachers Card List */}
-                    <div className="space-y-4">
-                      {teachers.length === 0 ? (
-                        <div className="text-center p-8 text-zinc-400 text-xs font-medium border border-zinc-200 rounded-xl bg-white">
-                          No teachers added to the roster yet. Add a teacher above.
-                        </div>
-                      ) : (
-                        teachers.map((teacher) => (
-                          <Card key={teacher.id} className="border border-zinc-200 shadow-xs rounded-xl overflow-hidden bg-white">
-                            <CardHeader className="p-3 bg-zinc-50/30 border-b border-zinc-150 flex flex-row items-center justify-between gap-4">
-                              <div className="flex-1">
-                                <input
-                                  type="text"
-                                  value={teacher.name}
-                                  onChange={(e) => handleUpdateTeacherName(teacher.id, e.target.value)}
-                                  className="w-full bg-transparent border-b border-transparent hover:border-zinc-300 focus:border-[#064e3b] font-bold text-zinc-800 p-1 outline-none text-xs"
-                                  placeholder="Teacher Name"
-                                />
-                              </div>
-                              <Button
-                                type="button"
-                                variant="outline"
-                                size="sm"
-                                onClick={() => handleRemoveTeacher(teacher.id)}
-                                className="text-red-500 hover:text-red-800 hover:bg-red-50 border-zinc-200 h-8"
-                              >
-                                <Trash2 className="w-3.5 h-3.5 mr-1" /> Delete Teacher
-                              </Button>
-                            </CardHeader>
-                            <CardContent className="p-4 space-y-4">
-                              <div className="space-y-3">
-                                <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">
-                                  Subject Allocations
-                                </span>
-                                
-                                {teacher.allocations.length === 0 ? (
-                                  <div className="text-xs text-zinc-400 italic py-1 pl-1">
-                                    No subjects assigned. Click "+ Add Subject" below.
-                                  </div>
-                                ) : (
-                                  <div className="space-y-3">
-                                    {teacher.allocations.map((alloc, allocIdx) => (
-                                      <div key={allocIdx} className="p-3 border border-zinc-150 rounded-lg bg-zinc-50/20 flex flex-col md:flex-row gap-4 items-start md:items-center relative">
-                                        {/* Subject Input */}
-                                        <div className="w-full md:w-1/4 space-y-1">
-                                          <span className="text-[9px] font-bold text-zinc-400 uppercase">Subject Name</span>
-                                          <Input
-                                            value={alloc.subjectName}
-                                            onChange={(e) => handleUpdateSubjectName(teacher.id, allocIdx, e.target.value)}
-                                            placeholder="e.g. Math"
-                                            className="h-8 text-xs font-semibold bg-white"
-                                          />
-                                        </div>
-                                        
-                                        {/* Tokenized Class Picker */}
-                                        <div className="flex-1 space-y-1 w-full">
-                                          <span className="text-[9px] font-bold text-zinc-400 uppercase">Assign Classrooms</span>
-                                          <div className="flex flex-wrap gap-1.5 p-2 bg-white border border-zinc-200 rounded-lg min-h-8">
-                                            {preparedClasses.length === 0 ? (
-                                              <span className="text-[10px] text-zinc-400 font-medium italic">No classes available from Step 2</span>
-                                            ) : (
-                                              preparedClasses.map((cls) => {
-                                                const classKey = `${cls.gradeKey}-${cls.section}`;
-                                                const isSelected = alloc.classes.includes(classKey);
-                                                return (
-                                                  <button
-                                                    key={classKey}
-                                                    type="button"
-                                                    onClick={() => handleToggleAllocationClass(teacher.id, allocIdx, classKey)}
-                                                    className={`px-2 py-0.5 rounded text-[10px] font-bold border transition-colors cursor-pointer ${
-                                                      isSelected
-                                                        ? "bg-[#064e3b] border-[#064e3b] text-white shadow-xs"
-                                                        : "bg-zinc-50 border-zinc-200 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-805"
-                                                    }`}
-                                                  >
-                                                    {cls.gradeKey.replace("Grade ", "")}-{cls.section}
-                                                  </button>
-                                                );
-                                              })
-                                            )}
-                                          </div>
-                                        </div>
-
-                                        {/* Delete allocation button */}
-                                        <button
-                                          type="button"
-                                          onClick={() => handleRemoveAllocation(teacher.id, allocIdx)}
-                                          className="absolute top-2 right-2 md:relative md:top-auto md:right-auto p-1.5 rounded-lg border border-zinc-200 hover:bg-red-50 hover:text-red-650 text-zinc-400 transition-colors cursor-pointer"
-                                          title="Remove Subject"
-                                        >
-                                          <Trash className="w-3.5 h-3.5" />
-                                        </button>
-                                      </div>
-                                    ))}
-                                  </div>
-                                )}
-                              </div>
-                              
-                              <div className="pt-2 border-t border-zinc-100 flex justify-start">
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={() => handleAddAllocation(teacher.id)}
-                                  className="text-xs font-semibold text-[#064e3b] border-emerald-250 hover:bg-emerald-50 h-8 cursor-pointer"
-                                >
-                                  <Plus className="w-3.5 h-3.5 mr-1" />
-                                  {teacher.allocations.length === 0 ? "Add Subject" : "Add Another Subject"}
-                                </Button>
-                              </div>
-                            </CardContent>
-                          </Card>
-                        ))
-                      )}
-                    </div>
-                  </div>
-                ) : (
-                  <div className="space-y-6">
-                    {/* Inline Warning Banner for Skipped/Unresolved Rows */}
-                    {skippedRowsWarning.length > 0 && (
-                      <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 text-xs space-y-1.5 animate-fade-in">
-                        <div className="font-bold flex items-center gap-1.5">
-                          <AlertTriangle className="w-4 h-4 shrink-0 text-amber-600" />
-                          <span>Warnings: Some classrooms could not be resolved automatically</span>
-                        </div>
-                        <div className="max-h-28 overflow-y-auto pl-5 list-disc space-y-1 font-mono text-[10px]">
-                          {skippedRowsWarning.map((warning, idx) => (
-                            <div key={idx}>{warning}</div>
-                          ))}
-                        </div>
-                        <p className="text-[10px] text-zinc-500 mt-1 font-sans">
-                          * Unresolved classrooms were set as "unassigned". You can switch to manual mode to review and assign them.
-                        </p>
-                      </div>
-                    )}
-
-                    {/* File Drop/Upload Area */}
-                    <div className="flex flex-col justify-center items-center border border-dashed border-zinc-300 rounded-xl p-8 bg-zinc-50/30 text-center relative hover:border-[#064e3b] transition-colors">
-                      <Upload className="w-10 h-10 text-zinc-400 mb-3" />
-                      <span className="text-xs font-bold text-zinc-700 block">Upload spreadsheet (.xlsx, .xls, .csv)</span>
-                      <span className="text-[10px] text-zinc-400 mt-1.5 block">Drag and drop file here, or click to browse</span>
-                      <input
-                        type="file"
-                        accept=".xlsx, .xls, .csv"
-                        onChange={handleFileUpload}
-                        className="absolute inset-0 opacity-0 cursor-pointer"
+                <div className="space-y-6">
+                  {/* Quick Add Teacher Bar */}
+                  <div className="flex flex-col sm:flex-row gap-3 items-end border border-zinc-200 rounded-xl p-4 bg-zinc-50/20">
+                    <div className="flex-1 w-full space-y-1.5">
+                      <label className="text-xs font-bold text-zinc-800">Teacher Full Name</label>
+                      <Input
+                        value={newTeacherName}
+                        onChange={(e) => setNewTeacherName(e.target.value)}
+                        placeholder="e.g. Mrs. Susan Smith"
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            handleAddTeacher();
+                          }
+                        }}
                       />
                     </div>
+                    <Button
+                      type="button"
+                      onClick={handleAddTeacher}
+                      className="bg-[#064e3b] hover:bg-[#0f766e] text-white font-semibold h-10 px-5 flex items-center gap-1.5 w-full sm:w-auto"
+                    >
+                      <Plus className="w-4 h-4" /> Add Teacher
+                    </Button>
+                  </div>
 
-                    {/* Quick Preview of Parsed Teachers */}
-                    {teachers.length > 0 && (
-                      <div className="space-y-3">
-                        <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider block">
-                          Current Faculty Matrix Preview ({teachers.length} Staged Teachers)
-                        </span>
-                        <div className="border border-zinc-200 rounded-xl overflow-x-auto bg-white max-h-60">
-                          <table className="min-w-full divide-y divide-zinc-200 text-left text-xs">
-                            <thead className="bg-zinc-50/70 text-zinc-500 font-bold uppercase tracking-wider">
-                              <tr>
-                                <th className="px-4 py-3">Teacher</th>
-                                <th className="px-4 py-3">Subject Allocations</th>
-                              </tr>
-                            </thead>
-                            <tbody className="divide-y divide-zinc-200 text-zinc-800">
-                              {teachers.map((t, idx) => (
-                                <tr key={t.id || idx} className="hover:bg-zinc-50/10">
-                                  <td className="px-4 py-3 font-bold text-zinc-900">{t.name}</td>
-                                  <td className="px-4 py-3">
-                                    {t.allocations.length === 0 ? (
-                                      <span className="text-zinc-400 italic">No allocations</span>
-                                    ) : (
-                                      <div className="space-y-1.5">
-                                        {t.allocations.map((alloc, aIdx) => (
-                                          <div key={aIdx} className="flex flex-wrap items-center gap-1.5 text-[11px]">
-                                            <span className="font-bold text-zinc-700 bg-zinc-100 px-1.5 py-0.5 rounded">{alloc.subjectName || "Unnamed Subject"}:</span>
-                                            {alloc.classes.length === 0 ? (
-                                              <span className="text-amber-600 bg-amber-50 border border-amber-100 px-1.5 py-0.5 rounded text-[10px] font-bold">unassigned</span>
-                                            ) : (
-                                              alloc.classes.map((cKey) => (
-                                                <span key={cKey} className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
-                                                  cKey === "unassigned" 
-                                                    ? "text-amber-600 bg-amber-50 border border-amber-100" 
-                                                    : "text-emerald-800 bg-emerald-50 border border-emerald-100"
-                                                }`}>
-                                                  {cKey.replace("Grade ", "")}
-                                                </span>
-                                              ))
-                                            )}
-                                          </div>
-                                        ))}
-                                      </div>
-                                    )}
-                                  </td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
+                  {/* Teachers Card List */}
+                  <div className="space-y-4">
+                    {teachers.length === 0 ? (
+                      <div className="text-center p-8 text-zinc-400 text-xs font-medium border border-zinc-200 rounded-xl bg-white">
+                        No teachers added to the roster yet. Add a teacher above.
                       </div>
+                    ) : (
+                      teachers.map((teacher) => (
+                        <Card key={teacher.id} className="border border-zinc-200 shadow-xs rounded-xl overflow-hidden bg-white">
+                          <CardHeader className="p-3 bg-zinc-50/30 border-b border-zinc-150 flex flex-row items-center justify-between gap-4">
+                            <div className="flex-1">
+                              <input
+                                type="text"
+                                value={teacher.name}
+                                onChange={(e) => handleUpdateTeacherName(teacher.id, e.target.value)}
+                                className="font-bold text-zinc-900 border-b border-dashed border-transparent hover:border-zinc-350 focus:border-[#064e3b] focus:outline-none text-xs bg-transparent"
+                              />
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveTeacher(teacher.id)}
+                              className="text-red-750 hover:text-red-950 text-[10px] font-bold uppercase transition-colors flex items-center gap-1 cursor-pointer"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" /> Remove
+                            </button>
+                          </CardHeader>
+                          <CardContent className="p-3 space-y-3">
+                            {/* Subject Assignment List */}
+                            <div className="space-y-2">
+                              <div className="flex justify-between items-center">
+                                <span className="text-[10px] font-bold text-zinc-505 uppercase tracking-wide">Assigned Classes & Subjects</span>
+                                <button
+                                  type="button"
+                                  onClick={() => handleAddAllocation(teacher.id)}
+                                  className="text-[10px] text-[#064e3b] hover:text-[#0f766e] font-bold uppercase transition-all flex items-center gap-1 cursor-pointer"
+                                >
+                                  <Plus className="w-3 h-3" /> Assign Subject
+                                </button>
+                              </div>
+
+                              {teacher.allocations.length === 0 ? (
+                                <span className="text-[10px] text-zinc-400 italic block">No subjects assigned yet.</span>
+                              ) : (
+                                <div className="space-y-2.5">
+                                  {teacher.allocations.map((alloc, aIdx) => (
+                                    <div key={aIdx} className="flex flex-col sm:flex-row gap-2 items-start sm:items-center border border-zinc-150 rounded-lg p-2.5 bg-zinc-50/40 relative">
+                                      <div className="w-full sm:w-1/3 space-y-1">
+                                        <span className="text-[9px] font-bold text-zinc-400 uppercase tracking-wider block">Subject Name</span>
+                                        <input
+                                          type="text"
+                                          value={alloc.subjectName}
+                                          onChange={(e) => handleUpdateSubjectName(teacher.id, aIdx, e.target.value)}
+                                          placeholder="e.g. MATH_101"
+                                          className="w-full text-xs font-semibold text-zinc-800 border-b border-dashed border-transparent hover:border-zinc-350 focus:border-[#064e3b] focus:outline-none bg-transparent"
+                                        />
+                                      </div>
+
+                                      <div className="flex-1 w-full space-y-1">
+                                        <span className="text-[9px] font-bold text-zinc-405 uppercase tracking-wider block font-sans">Allocate Grade Divisions</span>
+                                        <div className="flex flex-wrap gap-1.5">
+                                          {preparedClasses.length === 0 ? (
+                                            <span className="text-[10px] text-zinc-400 italic">No sections configured in Step 2</span>
+                                          ) : (
+                                            preparedClasses.map((cls) => {
+                                              const classKey = `${cls.gradeKey}-${cls.section}`;
+                                              const isAllocated = alloc.classes.includes(classKey);
+                                              return (
+                                                <button
+                                                  key={classKey}
+                                                  type="button"
+                                                  onClick={() => handleToggleAllocationClass(teacher.id, aIdx, classKey)}
+                                                  className={`px-2 py-0.5 rounded text-[10px] font-bold border transition-all cursor-pointer ${
+                                                    isAllocated
+                                                      ? "bg-[#ecfdf5] text-[#064e3b] border-[#064e3b]"
+                                                      : "bg-white text-zinc-400 border-zinc-200 hover:bg-zinc-50"
+                                                  }`}
+                                                >
+                                                  {cls.gradeKey.replace("Grade ", "")}-{cls.section}
+                                                </button>
+                                              );
+                                            })
+                                          )}
+                                        </div>
+                                      </div>
+
+                                      <button
+                                        type="button"
+                                        onClick={() => handleRemoveAllocation(teacher.id, aIdx)}
+                                        className="text-zinc-400 hover:text-red-705 p-1 transition-colors self-end sm:self-center cursor-pointer"
+                                      >
+                                        <Trash2 className="w-3.5 h-3.5" />
+                                      </button>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          </CardContent>
+                        </Card>
+                      ))
                     )}
                   </div>
-                )}
+                </div>
               </CardContent>
               <CardFooter className="p-4 sm:p-6 border-t border-zinc-150 bg-zinc-50/50 flex flex-col sm:flex-row justify-between gap-3">
                 <Button variant="outline" onClick={() => setStep(2)} className="gap-1.5 w-full sm:w-auto cursor-pointer">
@@ -1465,36 +1327,20 @@ export default function OnboardingWizard() {
               </CardHeader>
               <CardContent className="p-4 sm:p-6 space-y-6">
                 
-                {/* File / Paste inputs container */}
-                <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-stretch">
-                  {/* File drop zone */}
-                  <div className="lg:col-span-4 flex flex-col justify-center items-center border border-dashed border-zinc-300 rounded-xl p-5 bg-zinc-50/30 text-center relative hover:border-[#064e3b] transition-colors">
-                    <Upload className="w-8 h-8 text-zinc-400 mb-2" />
-                    <span className="text-xs font-bold text-zinc-700 block">Drop CSV File</span>
-                    <span className="text-[10px] text-zinc-400 mt-1 block">Click to upload roster sheet</span>
-                    <input
-                      type="file"
-                      accept=".csv, .txt"
-                      onChange={handleFileUpload}
-                      className="absolute inset-0 opacity-0 cursor-pointer"
-                    />
+                {/* Paste input container */}
+                <div className="space-y-1.5">
+                  <div className="flex justify-between items-center">
+                    <label className="text-xs font-bold text-zinc-800 flex items-center gap-1">
+                      <Clipboard className="w-4 h-4 text-emerald-800" /> Paste from Excel or Google Sheets
+                    </label>
                   </div>
-
-                  {/* Textarea paste zone */}
-                  <div className="lg:col-span-8 space-y-1.5">
-                    <div className="flex justify-between items-center">
-                      <label className="text-xs font-bold text-zinc-800 flex items-center gap-1">
-                        <Clipboard className="w-4 h-4 text-emerald-800" /> Paste from Excel or Google Sheets
-                      </label>
-                    </div>
-                    <textarea
-                      rows={5}
-                      value={pastedText}
-                      onChange={(e) => setPastedText(e.target.value)}
-                      placeholder="Name, Email, Roll, Class, Parent Name, Parent Email, Parent Phone&#10;Rahul Sharma, rahul@gmail.com, 1, 10A, Sanjay Sharma, sanjay@gmail.com, 9876543210&#10;Priya Patel, , , 9B, , , &#10;Siddharth Singh, , 3, 10A, , , "
-                      className="w-full text-xs font-mono p-3 border border-zinc-200 rounded-xl focus:border-[#064e3b] focus:ring-1 focus:ring-[#064e3b] bg-white outline-none"
-                    />
-                  </div>
+                  <textarea
+                    rows={5}
+                    value={pastedText}
+                    onChange={(e) => setPastedText(e.target.value)}
+                    placeholder="Name, Email, Roll, Class, Parent Name, Parent Email, Parent Phone&#10;Rahul Sharma, rahul@gmail.com, 1, 10A, Sanjay Sharma, sanjay@gmail.com, 9876543210&#10;Priya Patel, , , 9B, , , &#10;Siddharth Singh, , 3, 10A, , , "
+                    className="w-full text-xs font-mono p-3 border border-zinc-200 rounded-xl focus:border-[#064e3b] focus:ring-1 focus:ring-[#064e3b] bg-white outline-none"
+                  />
                 </div>
 
                 {/* Ingest and repair buttons */}
