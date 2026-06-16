@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { UserPlus, Wallet, LogOut, Home } from "lucide-react";
+import { UserPlus, Wallet, LogOut, Home, Users } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { signOut } from "@/lib/supabase/client";
 
@@ -25,6 +25,7 @@ export default function AdminLayout({
 
   const menuItems = [
     { name: "Overview", href: "/admin", icon: Home },
+    { name: "Students", href: "/admin/students", icon: Users },
     { name: "Add Students", href: "/admin/intake", icon: UserPlus },
     { name: "Fees & Scholarships", href: "/admin/finance", icon: Wallet },
   ];

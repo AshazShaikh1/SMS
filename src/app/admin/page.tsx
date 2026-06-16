@@ -3,7 +3,8 @@
 import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Users, Landmark, UserPlus, FileEdit, ChevronRight, Wallet, Loader2, Sparkles } from "lucide-react";
+import * as XLSX from "xlsx";
+import { Users, Landmark, UserPlus, FileEdit, ChevronRight, ChevronLeft, Wallet, Loader2, Sparkles, Download, BookOpen, GraduationCap } from "lucide-react";
 import { FinancialHealthBar } from "@/components/dashboard/FinancialHealthBar";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -20,6 +21,7 @@ export default function AdminDashboard() {
   const [schoolName, setSchoolName] = useState("School Dashboard");
   const [loading, setLoading] = useState(true);
   const [schoolId, setSchoolId] = useState<string | null>(null);
+  const [userRole, setUserRole] = useState<string | null>(null);
 
   // Materialization & Onboarding Ledger States
   const [isMaterializing, setIsMaterializing] = useState(false);
@@ -27,65 +29,11 @@ export default function AdminDashboard() {
   const [materializationError, setMaterializationError] = useState<string | null>(null);
   const [showLedgerBanner, setShowLedgerBanner] = useState(false);
   const [rosterCredentials, setRosterCredentials] = useState<any[]>([]);
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
 
-  // Record Payment States
-  const [selectedPaymentStudent, setSelectedPaymentStudent] = useState<Student | null>(null);
-  const [paymentAmount, setPaymentAmount] = useState("");
-  const [paymentMode, setPaymentMode] = useState<"cash" | "upi" | "bank_transfer">("cash");
-  const [referenceNumber, setReferenceNumber] = useState("");
-  const [paymentError, setPaymentError] = useState<string | null>(null);
-  const [paymentSubmitting, setPaymentSubmitting] = useState(false);
-
-  const handleRecordPaymentSubmit = async () => {
-    if (!selectedPaymentStudent) return;
-    
-    const amtStr = paymentAmount.trim();
-    if (!amtStr) {
-      setPaymentError("Please enter a payment amount.");
-      return;
-    }
-
-    if (!/^\d+(\.\d+)?$/.test(amtStr)) {
-      setPaymentError("Amount paid must contain only numbers.");
-      return;
-    }
-
-    const amt = Number(amtStr);
-    if (amt <= 0) {
-      setPaymentError("Payment amount must be greater than zero.");
-      return;
-    }
-
-    const outstandingBalance = selectedPaymentStudent.financial_ledger?.current_outstanding_balance || 0;
-    if (amt > outstandingBalance) {
-      setPaymentError(`Payment amount cannot exceed student's actual outstanding balance (₹${outstandingBalance.toLocaleString("en-IN")}).`);
-      return;
-    }
-
-    setPaymentSubmitting(true);
-    setPaymentError(null);
-
-    const res = await recordPayment({
-      schoolId: schoolId || "",
-      studentId: selectedPaymentStudent.personal_details.student_profile_id || "",
-      amountPaid: amt,
-      paymentMode,
-      referenceNumber: referenceNumber.trim() || undefined,
-    });
-
-    if (res.success) {
-      const list = await fetchStudents();
-      setStudents(list);
-      setSelectedPaymentStudent(null);
-      setPaymentAmount("");
-      setPaymentMode("cash");
-      setReferenceNumber("");
-      setPaymentError(null);
-    } else {
-      setPaymentError(res.error || "Failed to record payment transaction.");
-    }
-    setPaymentSubmitting(false);
-  };
+  // Stats counts
+  const [classCount, setClassCount] = useState<number | null>(null);
+  const [teacherCount, setTeacherCount] = useState<number | null>(null);
 
   useEffect(() => {
     async function loadData() {
@@ -96,10 +44,10 @@ export default function AdminDashboard() {
         return;
       }
 
-      // Fetch School Name and School ID
+      // Fetch School Name, Role and School ID
       const { data: profile } = await supabase
         .from("profiles")
-        .select("school_id, school:schools(school_name)")
+        .select("school_id, role, school:schools(school_name)")
         .eq("id", user.id)
         .single();
       
@@ -107,6 +55,7 @@ export default function AdminDashboard() {
       if (profile) {
         currentSchoolId = profile.school_id;
         setSchoolId(currentSchoolId);
+        setUserRole(profile.role);
         if (profile.school) {
           setSchoolName((profile.school as any).school_name);
         }
@@ -114,15 +63,15 @@ export default function AdminDashboard() {
 
       if (currentSchoolId) {
         // 1. Check if staging row exists
-        const { data: stagingData, error: stagingError } = await supabase
+        const { data: stagingData } = await supabase
           .from("onboarding_staging")
           .select("staged_data")
           .eq("school_id", currentSchoolId)
           .maybeSingle();
 
         if (stagingData && stagingData.staged_data) {
-          // Trigger Phase 2 bulk row materialization
-          await materializeSchoolData(currentSchoolId, stagingData.staged_data);
+          // Trigger Phase 2 bulk row materialization in the background
+          materializeSchoolData(currentSchoolId, stagingData.staged_data);
         } else {
           // 2. No staging row. Check if credentials exist in localStorage from a previous execution
           const cachedRoster = localStorage.getItem(`staged_credentials_${currentSchoolId}`);
@@ -132,6 +81,20 @@ export default function AdminDashboard() {
             setShowLedgerBanner(true);
           }
         }
+
+        // Fetch dynamic counts
+        const { count: clCount } = await supabase
+          .from("classes")
+          .select("id", { count: "exact", head: true })
+          .eq("school_id", currentSchoolId);
+        setClassCount(clCount);
+
+        const { count: tCount } = await supabase
+          .from("profiles")
+          .select("id", { count: "exact", head: true })
+          .eq("school_id", currentSchoolId)
+          .eq("role", "teacher");
+        setTeacherCount(tCount);
       }
 
       const list = await fetchStudents();
@@ -145,6 +108,7 @@ export default function AdminDashboard() {
     setIsMaterializing(true);
     setMaterializationError(null);
     const schoolSlug = stagedData.schoolSlug || "school";
+    const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
     
     // Create the secondary non-persisting Supabase client
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://placeholder-url.supabase.co";
@@ -262,42 +226,104 @@ export default function AdminDashboard() {
         }
         
         const baseTeacherUsername = `${schoolSlug}-teach-${last}${firsts}`;
-        const teacherUsername = generateUniqueUsername(baseTeacherUsername);
-        const teacherEmail = `${teacherUsername}@internal-sms.local`;
+        let teacherUsername = generateUniqueUsername(baseTeacherUsername);
+        let teacherEmail = `${teacherUsername}@internal-sms.local`;
         const teacherPassword = generateRandomPIN();
 
-        // Sign up teacher in Auth
-        const { data: teacherAuth, error: teacherAuthError } = await tempAuthClient.auth.signUp({
-          email: teacherEmail,
-          password: teacherPassword,
-          options: {
-            data: {
-              full_name: teacher.name,
+        // Check if teacher profile already exists in DB
+        const { data: existingTeacherProfile } = await supabase
+          .from("profiles")
+          .select("id")
+          .eq("school_id", activeSchoolId)
+          .eq("email", teacherUsername)
+          .maybeSingle();
+
+        let teacherUserId: string;
+        let finalTeacherPassword = teacherPassword;
+
+        if (existingTeacherProfile) {
+          teacherUserId = existingTeacherProfile.id;
+          finalTeacherPassword = "(Existing PIN)";
+          
+          // Update profile full_name if changed
+          await supabase
+            .from("profiles")
+            .update({ full_name: teacher.name })
+            .eq("id", teacherUserId);
+          
+          // Delete existing allocations to make it idempotent
+          const { error: deleteAllocError } = await supabase
+            .from("teacher_allocations")
+            .delete()
+            .eq("teacher_id", teacherUserId);
+          if (deleteAllocError) {
+            console.warn(`Failed to clean existing allocations for teacher ${teacher.name}:`, deleteAllocError);
+          }
+        } else {
+          // Sign up teacher in Auth (with retry loop for email uniqueness)
+          let teacherAuth = null;
+          let teacherAuthError = null;
+          let signupAttempts = 0;
+          let tempTeacherUsername = teacherUsername;
+          let tempTeacherEmail = teacherEmail;
+
+          while (signupAttempts < 5) {
+            const { data, error } = await tempAuthClient.auth.signUp({
+              email: tempTeacherEmail,
+              password: teacherPassword,
+              options: {
+                data: {
+                  full_name: teacher.name,
+                }
+              }
+            });
+
+            if (!error && data?.user) {
+              teacherAuth = data;
+              teacherUsername = tempTeacherUsername;
+              teacherEmail = tempTeacherEmail;
+              break;
+            }
+
+            if (error && (
+              error.message.toLowerCase().includes("registered") ||
+              error.message.toLowerCase().includes("exists") ||
+              error.message.toLowerCase().includes("taken")
+            )) {
+              signupAttempts++;
+              tempTeacherUsername = `${teacherUsername}-${signupAttempts}`;
+              tempTeacherEmail = `${tempTeacherUsername}@internal-sms.local`;
+              continue;
+            } else {
+              teacherAuthError = error;
+              break;
             }
           }
-        });
 
-        if (teacherAuthError || !teacherAuth.user) {
-          throw new Error(`Auth signup failed for teacher ${teacher.name}: ${teacherAuthError?.message}`);
+          if (teacherAuthError || !teacherAuth?.user) {
+            throw new Error(`Auth signup failed for teacher ${teacher.name}: ${teacherAuthError?.message}`);
+          }
+
+          await delay(1200); // Prevent Supabase Auth rate limiting
+          teacherUserId = teacherAuth.user.id;
+
+          // Create Profile row
+          const { error: teacherProfileError } = await supabase
+            .from("profiles")
+            .insert({
+              id: teacherUserId,
+              school_id: activeSchoolId,
+              email: teacherUsername, // username stored in email field
+              full_name: teacher.name,
+              role: "teacher"
+            });
+
+          if (teacherProfileError) {
+            throw new Error(`Failed to establish profile for teacher ${teacher.name}: ${teacherProfileError.message}`);
+          }
         }
 
-        const teacherUserId = teacherAuth.user.id;
         teacherProfileIdMap.set(teacher.id, teacherUserId);
-
-        // Create Profile row
-        const { error: teacherProfileError } = await supabase
-          .from("profiles")
-          .insert({
-            id: teacherUserId,
-            school_id: activeSchoolId,
-            email: teacherUsername, // username stored in email field
-            full_name: teacher.name,
-            role: "teacher"
-          });
-
-        if (teacherProfileError) {
-          throw new Error(`Failed to establish profile for teacher ${teacher.name}: ${teacherProfileError.message}`);
-        }
 
         // Link Teacher to their assigned subject allocations in new teacher_allocations table
         const teacherAllocationsToInsert: { school_id: string; teacher_id: string; class_id: string; subject_name: string }[] = [];
@@ -346,7 +372,7 @@ export default function AdminDashboard() {
           role: "Teacher",
           assignedClass: allocationDescriptions.join(" | ") || "None",
           username: teacherUsername,
-          password: teacherPassword
+          password: finalTeacherPassword
         });
       }
 
@@ -394,47 +420,101 @@ export default function AdminDashboard() {
         // If no match found (or phone number did not exist or names were completely distinct)
         if (!resolvedParent) {
           const baseParentUsername = `${schoolSlug}-par-${student.rollNumber}`;
-          const parentUsername = generateUniqueUsername(baseParentUsername);
-          const parentEmail = `${parentUsername}@internal-sms.local`;
+          let parentUsername = generateUniqueUsername(baseParentUsername);
+          let parentEmail = (student.parentEmail && student.parentEmail.includes("@"))
+            ? student.parentEmail.trim().toLowerCase()
+            : `${parentUsername}@internal-sms.local`;
           const parentPassword = generateRandomPIN();
 
-          // Sign up parent in Auth
-          const { data: parentAuth, error: parentAuthError } = await tempAuthClient.auth.signUp({
-            email: parentEmail,
-            password: parentPassword,
-            options: {
-              data: {
-                full_name: student.parentName,
+          // Check if parent profile already exists in DB
+          const { data: existingParentProfile } = await supabase
+            .from("profiles")
+            .select("id")
+            .eq("school_id", activeSchoolId)
+            .eq("email", parentUsername)
+            .maybeSingle();
+
+          let parentUserId: string;
+          let finalParentPassword = parentPassword;
+
+          if (existingParentProfile) {
+            parentUserId = existingParentProfile.id;
+            finalParentPassword = "(Existing PIN)";
+            
+            // Update profile full_name if changed
+            await supabase
+              .from("profiles")
+              .update({ full_name: student.parentName })
+              .eq("id", parentUserId);
+          } else {
+            // Sign up parent in Auth (with retry loop for email uniqueness)
+            let parentAuth = null;
+            let parentAuthError = null;
+            let signupAttempts = 0;
+            let tempParentUsername = parentUsername;
+            let tempParentEmail = parentEmail;
+
+            while (signupAttempts < 5) {
+              const { data, error } = await tempAuthClient.auth.signUp({
+                email: tempParentEmail,
+                password: parentPassword,
+                options: {
+                  data: {
+                    full_name: student.parentName,
+                  }
+                }
+              });
+
+              if (!error && data?.user) {
+                parentAuth = data;
+                parentUsername = tempParentUsername;
+                parentEmail = tempParentEmail;
+                break;
+              }
+
+              if (error && (
+                error.message.toLowerCase().includes("registered") ||
+                error.message.toLowerCase().includes("exists") ||
+                error.message.toLowerCase().includes("taken")
+              )) {
+                signupAttempts++;
+                tempParentUsername = `${parentUsername}-${signupAttempts}`;
+                tempParentEmail = `${tempParentUsername}@internal-sms.local`;
+                continue;
+              } else {
+                parentAuthError = error;
+                break;
               }
             }
-          });
 
-          if (parentAuthError || !parentAuth.user) {
-            throw new Error(`Auth signup failed for parent ${student.parentName}: ${parentAuthError?.message}`);
-          }
+            if (parentAuthError || !parentAuth?.user) {
+              throw new Error(`Auth signup failed for parent ${student.parentName}: ${parentAuthError?.message}`);
+            }
 
-          const parentUserId = parentAuth.user.id;
+            await delay(1200); // Prevent Supabase Auth rate limiting
+            parentUserId = parentAuth.user.id;
 
-          // Create Profile row
-          const { error: parentProfileError } = await supabase
-            .from("profiles")
-            .insert({
-              id: parentUserId,
-              school_id: activeSchoolId,
-              email: parentUsername,
-              full_name: student.parentName,
-              role: "parent",
-              phone_number: parentPhone || null
-            });
+            // Create Profile row
+            const { error: parentProfileError } = await supabase
+              .from("profiles")
+              .insert({
+                id: parentUserId,
+                school_id: activeSchoolId,
+                email: parentUsername,
+                full_name: student.parentName,
+                role: "parent",
+                phone_number: parentPhone || null
+              });
 
-          if (parentProfileError) {
-            throw new Error(`Failed to establish profile for parent ${student.parentName}: ${parentProfileError.message}`);
+            if (parentProfileError) {
+              throw new Error(`Failed to establish profile for parent ${student.parentName}: ${parentProfileError.message}`);
+            }
           }
 
           resolvedParent = {
             id: parentUserId,
             username: parentUsername,
-            password: parentPassword
+            password: finalParentPassword
           };
 
           // Save to phone cache
@@ -446,7 +526,7 @@ export default function AdminDashboard() {
               id: parentUserId,
               name: student.parentName,
               username: parentUsername,
-              password: parentPassword
+              password: finalParentPassword
             });
           }
 
@@ -456,7 +536,7 @@ export default function AdminDashboard() {
             role: "Parent",
             assignedClass: `${student.gradeLevel.replace("Grade ", "")}-${student.section} (Child: ${student.name})`,
             username: parentUsername,
-            password: parentPassword
+            password: finalParentPassword
           });
         }
 
@@ -471,40 +551,92 @@ export default function AdminDashboard() {
         const gradeNum = student.gradeLevel.replace(/[^0-9]/g, "");
         const cleanSec = student.section.toLowerCase().replace(/[^a-z0-9]/g, "");
         const baseStudentUsername = `${schoolSlug}-stu-${gradeNum}${cleanSec}-${student.rollNumber}`;
-        const studentUsername = generateUniqueUsername(baseStudentUsername);
-        const studentEmail = `${studentUsername}@internal-sms.local`;
+        let studentUsername = generateUniqueUsername(baseStudentUsername);
+        let studentEmail = `${studentUsername}@internal-sms.local`;
         const studentPassword = generateRandomPIN();
 
-        // Sign up student in Auth
-        const { data: studentAuth, error: studentAuthError } = await tempAuthClient.auth.signUp({
-          email: studentEmail,
-          password: studentPassword,
-          options: {
-            data: {
-              full_name: student.name,
+        // Check if student profile already exists in DB
+        const { data: existingStudentProfile } = await supabase
+          .from("profiles")
+          .select("id")
+          .eq("school_id", activeSchoolId)
+          .eq("email", studentUsername)
+          .maybeSingle();
+
+        let studentUserId: string;
+        let finalStudentPassword = studentPassword;
+
+        if (existingStudentProfile) {
+          studentUserId = existingStudentProfile.id;
+          finalStudentPassword = "(Existing PIN)";
+          
+          // Update profile full_name if changed
+          await supabase
+            .from("profiles")
+            .update({ full_name: student.name })
+            .eq("id", studentUserId);
+        } else {
+          // Sign up student in Auth (with retry loop for email uniqueness)
+          let studentAuth = null;
+          let studentAuthError = null;
+          let signupAttempts = 0;
+          let tempStudentUsername = studentUsername;
+          let tempStudentEmail = studentEmail;
+
+          while (signupAttempts < 5) {
+            const { data, error } = await tempAuthClient.auth.signUp({
+              email: tempStudentEmail,
+              password: studentPassword,
+              options: {
+                data: {
+                  full_name: student.name,
+                }
+              }
+            });
+
+            if (!error && data?.user) {
+              studentAuth = data;
+              studentUsername = tempStudentUsername;
+              studentEmail = tempStudentEmail;
+              break;
+            }
+
+            if (error && (
+              error.message.toLowerCase().includes("registered") ||
+              error.message.toLowerCase().includes("exists") ||
+              error.message.toLowerCase().includes("taken")
+            )) {
+              signupAttempts++;
+              tempStudentUsername = `${studentUsername}-${signupAttempts}`;
+              tempStudentEmail = `${tempStudentUsername}@internal-sms.local`;
+              continue;
+            } else {
+              studentAuthError = error;
+              break;
             }
           }
-        });
 
-        if (studentAuthError || !studentAuth.user) {
-          throw new Error(`Auth signup failed for student ${student.name}: ${studentAuthError?.message}`);
-        }
+          if (studentAuthError || !studentAuth?.user) {
+            throw new Error(`Auth signup failed for student ${student.name}: ${studentAuthError?.message}`);
+          }
 
-        const studentUserId = studentAuth.user.id;
+          await delay(1200); // Prevent Supabase Auth rate limiting
+          studentUserId = studentAuth.user.id;
 
-        // Create Profile row
-        const { error: studentProfileError } = await supabase
-          .from("profiles")
-          .insert({
-            id: studentUserId,
-            school_id: activeSchoolId,
-            email: studentUsername,
-            full_name: student.name,
-            role: "student"
-          });
+          // Create Profile row
+          const { error: studentProfileError } = await supabase
+            .from("profiles")
+            .insert({
+              id: studentUserId,
+              school_id: activeSchoolId,
+              email: studentUsername,
+              full_name: student.name,
+              role: "student"
+            });
 
-        if (studentProfileError) {
-          throw new Error(`Failed to establish profile for student ${student.name}: ${studentProfileError.message}`);
+          if (studentProfileError) {
+            throw new Error(`Failed to establish profile for student ${student.name}: ${studentProfileError.message}`);
+          }
         }
 
         // Get class ID
@@ -548,20 +680,152 @@ export default function AdminDashboard() {
           });
         }
 
-        // Insert student record
-        const { error: studentRecordError } = await supabase
+        // Check if student link record already exists in students table
+        const { data: existingStudentRecord } = await supabase
           .from("students")
-          .insert({
-            school_id: activeSchoolId,
-            profile_id: studentUserId,
-            parent_id: linkedParentId,
-            class_id: classId,
-            roll_number: student.rollNumber,
-            fee_modifiers: feeModifiers
-          });
+          .select("id")
+          .eq("profile_id", studentUserId)
+          .maybeSingle();
 
-        if (studentRecordError) {
-          throw new Error(`Failed to create student link record for ${student.name}: ${studentRecordError.message}`);
+        if (existingStudentRecord) {
+          // Update existing student record to make it idempotent
+          const { error: studentRecordError } = await supabase
+            .from("students")
+            .update({
+              parent_id: linkedParentId,
+              class_id: classId,
+              roll_number: student.rollNumber,
+              fee_modifiers: feeModifiers,
+              // Demographic fields
+              first_name: student.first_name || null,
+              surname: student.surname || null,
+              register_no: student.register_no || null,
+              gender: student.gender || null,
+              birth_date: student.birth_date || null,
+              dob_in_words: student.dob_in_words || null,
+              birth_place: student.birth_place || null,
+              phones: student.phones || null,
+              address: student.address || null,
+              country: student.country || null,
+              state: student.state || null,
+              dist: student.dist || null,
+              taluka: student.taluka || null,
+              colony: student.colony || null,
+              distance: student.distance || null,
+              admit_in_class: student.admit_in_class || null,
+              last_class: student.last_class || null,
+              last_school_attended: student.last_school_attended || null,
+              admission_date: student.admission_date || null,
+              father_name: student.father_name || null,
+              father_occupation: student.father_occupation || null,
+              father_qualification: student.father_qualification || null,
+              father_uid_no: student.father_uid_no || null,
+              mother_name: student.mother_name || null,
+              mother_occupation: student.mother_occupation || null,
+              mother_qualification: student.mother_qualification || null,
+              mother_uid_no: student.mother_uid_no || null,
+              mother_tongue: student.mother_tongue || null,
+              guardian: student.guardian || null,
+              sibling: student.sibling || null,
+              single_parent: student.single_parent || false,
+              orphan: student.orphan || false,
+              aadhar_number: student.aadhar_number || null,
+              aapar_id: student.aapar_id || null,
+              pen_number: student.pen_number || null,
+              saral_id: student.saral_id || null,
+              nationality: student.nationality || null,
+              religion: student.religion || null,
+              caste: student.caste || null,
+              sub_caste: student.sub_caste || null,
+              progress: student.progress || null,
+              conduct: student.conduct || null,
+              reason_for_leaving: student.reason_for_leaving || null,
+              leaving_date: student.leaving_date || null,
+              remarks: student.remarks || null,
+              bloodgroup: student.bloodgroup || null,
+              height: student.height || null,
+              weight: student.weight || null,
+              handicap: student.handicap || false,
+              login_email: student.login_email || null,
+              muman: student.muman || null,
+              qrcode: student.qrcode || null,
+              rfid: student.rfid || null,
+            })
+            .eq("id", existingStudentRecord.id);
+
+          if (studentRecordError) {
+            throw new Error(`Failed to update student link record for ${student.name}: ${studentRecordError.message}`);
+          }
+        } else {
+          // Insert student record
+          const { error: studentRecordError } = await supabase
+            .from("students")
+            .insert({
+              school_id: activeSchoolId,
+              profile_id: studentUserId,
+              parent_id: linkedParentId,
+              class_id: classId,
+              roll_number: student.rollNumber,
+              fee_modifiers: feeModifiers,
+              // Demographic fields
+              first_name: student.first_name || null,
+              surname: student.surname || null,
+              register_no: student.register_no || null,
+              gender: student.gender || null,
+              birth_date: student.birth_date || null,
+              dob_in_words: student.dob_in_words || null,
+              birth_place: student.birth_place || null,
+              phones: student.phones || null,
+              address: student.address || null,
+              country: student.country || null,
+              state: student.state || null,
+              dist: student.dist || null,
+              taluka: student.taluka || null,
+              colony: student.colony || null,
+              distance: student.distance || null,
+              admit_in_class: student.admit_in_class || null,
+              last_class: student.last_class || null,
+              last_school_attended: student.last_school_attended || null,
+              admission_date: student.admission_date || null,
+              father_name: student.father_name || null,
+              father_occupation: student.father_occupation || null,
+              father_qualification: student.father_qualification || null,
+              father_uid_no: student.father_uid_no || null,
+              mother_name: student.mother_name || null,
+              mother_occupation: student.mother_occupation || null,
+              mother_qualification: student.mother_qualification || null,
+              mother_uid_no: student.mother_uid_no || null,
+              mother_tongue: student.mother_tongue || null,
+              guardian: student.guardian || null,
+              sibling: student.sibling || null,
+              single_parent: student.single_parent || false,
+              orphan: student.orphan || false,
+              aadhar_number: student.aadhar_number || null,
+              aapar_id: student.aapar_id || null,
+              pen_number: student.pen_number || null,
+              saral_id: student.saral_id || null,
+              nationality: student.nationality || null,
+              religion: student.religion || null,
+              caste: student.caste || null,
+              sub_caste: student.sub_caste || null,
+              progress: student.progress || null,
+              conduct: student.conduct || null,
+              reason_for_leaving: student.reason_for_leaving || null,
+              leaving_date: student.leaving_date || null,
+              remarks: student.remarks || null,
+              bloodgroup: student.bloodgroup || null,
+              height: student.height || null,
+              weight: student.weight || null,
+              handicap: student.handicap || false,
+              login_email: student.login_email || null,
+              muman: student.muman || null,
+              qrcode: student.qrcode || null,
+              rfid: student.rfid || null,
+            });
+
+          if (studentRecordError) {
+            throw new Error(`Failed to create student link record for ${student.name}: ${studentRecordError.message}`);
+          }
         }
 
         // Push to Roster list
@@ -570,7 +834,7 @@ export default function AdminDashboard() {
           role: "Student",
           assignedClass: `${student.gradeLevel.replace("Grade ", "")}-${student.section}`,
           username: studentUsername,
-          password: studentPassword
+          password: finalStudentPassword
         });
       }
 
@@ -591,7 +855,12 @@ export default function AdminDashboard() {
 
       setRosterCredentials(roster);
       setShowLedgerBanner(true);
+      setShowSuccessModal(true);
       setIsMaterializing(false);
+
+      // Refetch student roster directory so the dashboard shows the new students immediately
+      const list = await fetchStudents();
+      setStudents(list);
 
     } catch (err: any) {
       console.error("Materialization error:", err);
@@ -640,6 +909,8 @@ export default function AdminDashboard() {
     setShowLedgerBanner(false);
   };
 
+
+
   const totalOutstanding = students.reduce(
     (sum, s) => sum + (s.financial_ledger?.current_outstanding_balance || 0),
     0
@@ -653,26 +924,56 @@ export default function AdminDashboard() {
 
   return (
     <div className="space-y-8 animate-fade-in relative">
-      {/* Materializing Loading Overlay */}
+      {/* Background Materializing Floating Widget */}
       {isMaterializing && (
-        <div className="fixed inset-0 bg-white/95 backdrop-blur-md z-50 flex items-center justify-center p-6 animate-fade-in">
-          <div className="max-w-md w-full text-center space-y-6">
-            <img src="/logo.svg" alt="EduNexus" className="mx-auto h-16 w-auto object-contain animate-pulse" />
-            <div className="space-y-2">
-              <h2 className="text-xl font-bold text-zinc-900 tracking-tight">Materializing School Databases</h2>
-              <p className="text-xs text-zinc-505 font-light max-w-xs mx-auto">
-                Please do not close, refresh, or navigate away from this page. We are preparing secure authentication portals for students, faculty, and families.
+        <div className="fixed bottom-6 right-6 bg-white border border-zinc-200/80 shadow-2xl rounded-2xl p-4 max-w-xs w-80 z-40 animate-fade-in flex items-start gap-3.5">
+          <div className="bg-[#e6f0ff] p-2 rounded-xl border border-[#1572FE]/10 shrink-0">
+            <Loader2 className="w-5 h-5 animate-spin text-[#1572FE]" />
+          </div>
+          <div className="space-y-1 flex-1 min-w-0">
+            <h5 className="text-[11px] font-bold text-zinc-950 uppercase tracking-wider">Background Setup Running</h5>
+            <p className="text-[11px] text-zinc-500 leading-snug truncate">
+              {materializingStatus}
+            </p>
+            <span className="text-[9px] font-medium text-zinc-400 block pt-0.5">
+              Generating rosters & credentials in background...
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* Onboarding Success Popup Modal */}
+      {showSuccessModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4 animate-fade-in">
+          <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6 space-y-6 border border-zinc-100">
+            <div className="text-center space-y-2">
+              <span className="text-4xl block">🎉</span>
+              <h3 className="text-lg font-bold text-zinc-900">Onboarding & Setup Complete!</h3>
+              <p className="text-xs text-zinc-500 leading-relaxed font-light">
+                We have successfully provisioned accounts and security credentials for all students, parents, and teachers. 
+                Please download the credentials ledger below so you can distribute them.
               </p>
             </div>
             
-            {/* Progress Bar Loader */}
-            <div className="relative w-full h-1.5 bg-zinc-100 rounded-full overflow-hidden border border-zinc-200/50">
-              <div className="absolute top-0 bottom-0 left-0 bg-[#1572FE] rounded-full w-[80%] animate-pulse"></div>
-            </div>
-
-            <div className="flex items-center justify-center gap-2 text-xs text-zinc-650 font-medium bg-[#e6f0ff] border border-[#1572FE]/10 py-2.5 px-4 rounded-xl">
-              <Loader2 className="w-4 h-4 animate-spin text-[#1572FE]" />
-              <span>{materializingStatus}</span>
+            <div className="flex flex-col gap-2">
+              <Button
+                onClick={() => {
+                  downloadCSV();
+                }}
+                className="w-full bg-[#1572FE] hover:bg-[#0f62d4] text-white font-bold py-2.5 rounded-xl text-xs gap-1.5 cursor-pointer h-10 animate-pulse"
+              >
+                Download Credentials Ledger (.CSV)
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setShowSuccessModal(false);
+                  handleDismissBanner(); // Clears localStorage and dismisses banner
+                }}
+                className="w-full text-zinc-600 hover:bg-zinc-50 border border-zinc-200 text-xs font-semibold py-2.5 rounded-xl cursor-pointer h-10"
+              >
+                Go to Dashboard
+              </Button>
             </div>
           </div>
         </div>
@@ -725,13 +1026,18 @@ export default function AdminDashboard() {
           <p className="text-xs text-zinc-505 mt-0.5">Quickly manage your school enrollment, see outstanding fees, and update student accounts.</p>
         </div>
         <div className="flex gap-2">
+          <Link href="/admin/students">
+            <Button size="sm" variant="outline" className="gap-2 text-xs font-semibold cursor-pointer h-9">
+              <Users className="w-4 h-4 text-[#1572FE]" /> View Student Directory
+            </Button>
+          </Link>
           <Link href="/admin/intake">
-            <Button size="sm" variant="outline" className="gap-2">
-              <UserPlus className="w-4 h-4" /> Add Students
+            <Button size="sm" variant="outline" className="gap-2 text-xs font-semibold cursor-pointer h-9">
+              <UserPlus className="w-4 h-4 text-blue-800" /> Add Students
             </Button>
           </Link>
           <Link href="/admin/finance">
-            <Button size="sm" className="gap-2">
+            <Button size="sm" className="gap-2 text-xs font-semibold cursor-pointer h-9">
               <Landmark className="w-4 h-4" /> Adjust Ledgers
             </Button>
           </Link>
@@ -739,7 +1045,8 @@ export default function AdminDashboard() {
       </div>
 
       {/* Stats Cards Row */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+        {/* Total Enrolled Students */}
         <div className="bg-white border border-zinc-200/50 rounded-2xl p-6 shadow-sm flex flex-col justify-between card-accent-emerald">
           <div className="flex items-center justify-between pb-2 border-none">
             <span className="text-xs font-bold uppercase tracking-wider text-zinc-400">Total Enrolled Students</span>
@@ -753,6 +1060,35 @@ export default function AdminDashboard() {
           </div>
         </div>
 
+        {/* Classroom Divisions */}
+        <div className="bg-white border border-zinc-200/50 rounded-2xl p-6 shadow-sm flex flex-col justify-between card-accent-indigo">
+          <div className="flex items-center justify-between pb-2 border-none">
+            <span className="text-xs font-bold uppercase tracking-wider text-zinc-400">Classroom Divisions</span>
+            <div className="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-950 flex items-center justify-center shadow-xs">
+              <BookOpen className="w-4 h-4" />
+            </div>
+          </div>
+          <div className="mt-4">
+            <div className="text-3xl font-extrabold text-zinc-900">{classCount !== null ? classCount : "..."}</div>
+            <p className="text-[10px] text-zinc-405 mt-1 font-medium">Active grades and sections configured.</p>
+          </div>
+        </div>
+
+        {/* Faculty Members */}
+        <div className="bg-white border border-zinc-200/50 rounded-2xl p-6 shadow-sm flex flex-col justify-between card-accent-rose">
+          <div className="flex items-center justify-between pb-2 border-none">
+            <span className="text-xs font-bold uppercase tracking-wider text-zinc-400">Faculty Members</span>
+            <div className="w-8 h-8 rounded-lg bg-rose-50 text-rose-950 flex items-center justify-center shadow-xs">
+              <GraduationCap className="w-4 h-4" />
+            </div>
+          </div>
+          <div className="mt-4">
+            <div className="text-3xl font-extrabold text-zinc-900">{teacherCount !== null ? teacherCount : "..."}</div>
+            <p className="text-[10px] text-zinc-405 mt-1 font-medium">Registered teachers and subject instructors.</p>
+          </div>
+        </div>
+
+        {/* Total Unpaid Fees */}
         <div className="bg-white border border-zinc-200/50 rounded-2xl p-6 shadow-sm flex flex-col justify-between card-accent-amber">
           <div className="flex items-center justify-between pb-2 border-none">
             <span className="text-xs font-bold uppercase tracking-wider text-zinc-400">Total Unpaid Fees</span>
@@ -771,327 +1107,78 @@ export default function AdminDashboard() {
         </div>
       </div>
 
-      {/* Asymmetric Section Grid (Main Content Split) */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* LEFT CONTENT COLUMN: Active Student Directory (2/3 width) */}
-        <div className="lg:col-span-2 space-y-4">
+      {/* Balanced 2-Column Dashboard Grid */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        {/* LEFT CARD: Quick Operations */}
+        <Card className="card-premium bg-white border border-zinc-200/50 shadow-sm p-6 card-accent-blue space-y-4">
           <div>
-            <h2 className="text-lg font-semibold text-zinc-900 tracking-tight">Active Student Directory</h2>
-            <p className="text-xs text-zinc-450 mt-0.5">Quick oversight list. Select "Edit Fees" to configure modifier parameters.</p>
+            <h3 className="text-base font-bold text-zinc-900">Quick Actions</h3>
+            <p className="text-xs text-zinc-455 mt-0.5">Primary pathways to manage school databases.</p>
           </div>
-
-          <Card className="card-premium p-0 bg-white card-accent-indigo">
-            {/* Desktop Table View */}
-            <div className="hidden md:block overflow-x-auto">
-              <table className="min-w-full divide-y divide-zinc-100 text-left text-sm">
-                <thead className="bg-zinc-50/50 text-[10px] font-bold text-zinc-500 uppercase tracking-wider">
-                  <tr>
-                    <th scope="col" className="px-6 py-4">Roll</th>
-                    <th scope="col" className="px-6 py-4">Student Name</th>
-                    <th scope="col" className="px-6 py-4">Grade & Section</th>
-                    <th scope="col" className="px-6 py-4">Outstanding Balance</th>
-                    <th scope="col" className="px-6 py-4 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-zinc-100">
-                  {loading ? (
-                    <tr>
-                      <td colSpan={5} className="px-6 py-8 text-center text-zinc-400 text-xs">
-                        Loading directory database...
-                      </td>
-                    </tr>
-                  ) : students.length === 0 ? (
-                    <tr>
-                      <td colSpan={5} className="px-6 py-8 text-center text-zinc-400 text-xs">
-                        No student records found. Import using CSV intake.
-                      </td>
-                    </tr>
-                  ) : (
-                    students.map((student) => (
-                      <tr key={student._id} className="hover:bg-zinc-50/30 transition-colors border-b border-zinc-100">
-                        <td className="px-6 py-4 text-zinc-500 text-xs font-semibold">
-                          #{student.personal_details.roll_number}
-                        </td>
-                        <td className="px-6 py-4">
-                          <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 bg-blue-50 text-blue-800 font-semibold flex items-center justify-center rounded-full text-sm uppercase shrink-0 shadow-sm border border-blue-100 animate-pulse">
-                              {student.personal_details.first_name[0]}
-                            </div>
-                            <div>
-                              <span className="font-semibold text-zinc-900 block leading-tight">
-                                {student.personal_details.first_name} {student.personal_details.last_name}
-                              </span>
-                              <span className="text-[10px] text-zinc-400">ID: {student._id}</span>
-                            </div>
-                          </div>
-                        </td>
-                        <td className="px-6 py-4">
-                          <Badge variant="secondary" className="font-normal text-[10px] py-0.5 px-2 bg-zinc-100 border border-zinc-200/50">
-                            Grade {student.academic_mapping.current_grade} - {student.academic_mapping.section}
-                          </Badge>
-                        </td>
-                        <td className="px-6 py-4 font-bold text-zinc-800 text-xs">
-                          ₹{student.financial_ledger?.current_outstanding_balance.toLocaleString("en-IN")}
-                        </td>
-                        <td className="px-6 py-4 text-right text-xs">
-                          <div className="flex items-center justify-end gap-3.5">
-                            <button
-                              onClick={() => setSelectedPaymentStudent(student)}
-                              className="inline-flex items-center gap-1.5 text-orange-700 hover:text-orange-900 font-bold transition-colors cursor-pointer"
-                            >
-                              Record Payment
-                            </button>
-                            <Link
-                              href={`/admin/finance?studentId=${student._id}`}
-                              className="inline-flex items-center gap-1.5 text-blue-800 hover:text-emerald-950 font-bold transition-colors"
-                            >
-                              <FileEdit className="w-3.5 h-3.5" /> Edit Fees
-                            </Link>
-                          </div>
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-
-            {/* Mobile View Roster List */}
-            <div className="space-y-4 md:hidden p-4">
-              {loading ? (
-                <div className="p-8 text-center text-zinc-405 text-xs bg-white border border-zinc-100 rounded-xl">
-                  Loading directory database...
-                </div>
-              ) : students.length === 0 ? (
-                <div className="p-8 text-center text-zinc-405 text-xs bg-white border border-zinc-100 rounded-xl">
-                  No student records found. Add students to start.
-                </div>
-              ) : (
-                students.map((student) => (
-                  <div key={student._id} className="p-4 space-y-4 bg-white border border-zinc-100 rounded-xl">
-                    <div className="flex justify-between items-start">
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 bg-blue-50 text-blue-800 font-semibold flex items-center justify-center rounded-full text-xs uppercase shadow-sm border border-blue-100">
-                          {student.personal_details.first_name[0]}
-                        </div>
-                        <div>
-                          <span className="font-semibold text-zinc-900 block leading-tight text-sm">
-                            {student.personal_details.first_name} {student.personal_details.last_name}
-                          </span>
-                          <span className="text-[10px] text-zinc-400">Roll: #{student.personal_details.roll_number} | ID: {student._id}</span>
-                        </div>
-                      </div>
-                      <Badge variant="secondary" className="font-normal text-[10px] py-0.5 px-2 bg-zinc-100 border border-zinc-200/50">
-                        Grade {student.academic_mapping.current_grade}-{student.academic_mapping.section}
-                      </Badge>
-                    </div>
-                    <div className="flex items-center justify-between border-t border-zinc-100 pt-3 text-xs">
-                      <div>
-                        <span className="text-zinc-400 block text-[10px] uppercase font-bold tracking-wider">Unpaid Fees</span>
-                        <span className="font-bold text-zinc-800 text-sm">
-                          ₹{student.financial_ledger?.current_outstanding_balance.toLocaleString("en-IN")}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => setSelectedPaymentStudent(student)}
-                          className="gap-1.5 px-3 py-1.5 h-8 text-xs border-zinc-250 hover:bg-blue-50/20 hover:border-[#1572FE] hover:text-[#1572FE] font-semibold cursor-pointer"
-                        >
-                          Record Payment
-                        </Button>
-                        <Link href={`/admin/finance?studentId=${student._id}`}>
-                          <Button size="sm" variant="outline" className="gap-1.5 px-3 py-1.5 h-8 text-xs border-zinc-250 hover:bg-blue-50/20 hover:border-[#1572FE] hover:text-[#1572FE] font-semibold">
-                            <FileEdit className="w-3.5 h-3.5" /> Edit Fees
-                          </Button>
-                        </Link>
-                      </div>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          </Card>
-        </div>
-
-        {/* RIGHT CONTENT COLUMN: Quick Actions (1/3 width) */}
-        <div className="lg:col-span-1">
-          <div className="sticky top-24 space-y-4">
-            <div>
-              <h2 className="text-lg font-semibold text-zinc-900 tracking-tight">Quick Operations</h2>
-              <p className="text-xs text-zinc-450 mt-0.5">Instant tasks and shortcuts.</p>
-            </div>
-
-            <Card className="card-premium bg-white border border-zinc-200/50 shadow-sm p-0 card-accent-rose">
-              <CardHeader className="p-5 pb-3">
-                <CardTitle className="text-xs font-semibold uppercase tracking-wider text-zinc-400">Quick Actions</CardTitle>
-              </CardHeader>
-              <CardContent className="p-5 pt-0 flex flex-col gap-3.5">
-                <Link href="/admin/intake" className="w-full">
-                  <button className="w-full text-left rounded-xl px-4 py-3 font-medium transition-all hover:shadow-md border border-zinc-200 bg-white hover:bg-zinc-50 text-zinc-700 hover:-translate-y-0.5 flex items-center justify-between text-xs cursor-pointer">
-                    <span className="flex items-center gap-2">
-                      <UserPlus className="w-4 h-4 text-blue-800" />
-                      Add Student List (CSV)
-                    </span>
-                    <ChevronRight className="w-4 h-4 text-zinc-400" />
-                  </button>
-                </Link>
-                
-                <Link href="/admin/finance" className="w-full">
-                  <button className="w-full text-left rounded-xl px-4 py-3 font-medium transition-all hover:shadow-md border border-zinc-200 bg-white hover:bg-zinc-50 text-zinc-700 hover:-translate-y-0.5 flex items-center justify-between text-xs cursor-pointer">
-                    <span className="flex items-center gap-2">
-                      <Wallet className="w-4 h-4 text-blue-800" />
-                      Edit Fees & Discounts
-                    </span>
-                    <ChevronRight className="w-4 h-4 text-zinc-400" />
-                  </button>
-                </Link>
-              </CardContent>
-            </Card>
-          </div>
-        </div>
-      </div>
-
-      {/* Sliding Payment Panel */}
-      {selectedPaymentStudent && (
-        <div className="fixed inset-0 z-50 flex justify-end">
-          {/* Backdrop */}
-          <div
-            className="absolute inset-0 bg-black/40 backdrop-blur-xs transition-opacity"
-            onClick={() => {
-              setSelectedPaymentStudent(null);
-              setPaymentAmount("");
-              setPaymentMode("cash");
-              setReferenceNumber("");
-              setPaymentError(null);
-            }}
-          />
-
-          {/* Panel */}
-          <div className="relative w-full max-w-md bg-[#FAF9F6] h-full shadow-2xl flex flex-col border-l border-zinc-200 z-10 transition-all duration-300">
-            {/* Header with light peach accent */}
-            <div className="bg-gradient-to-r from-[#fff7f2] to-[#fffcfb] p-6 border-b border-[#fed7aa] flex items-center justify-between">
-              <div>
-                <h3 className="text-sm font-bold text-zinc-900">Record Fee Payment</h3>
-                <p className="text-[10px] text-zinc-400 mt-0.5">
-                  Register payment for {selectedPaymentStudent.personal_details.first_name} {selectedPaymentStudent.personal_details.last_name}
-                </p>
-              </div>
-              <button
-                onClick={() => {
-                  setSelectedPaymentStudent(null);
-                  setPaymentAmount("");
-                  setPaymentMode("cash");
-                  setReferenceNumber("");
-                  setPaymentError(null);
-                }}
-                className="text-zinc-400 hover:text-zinc-600 font-bold text-xs p-1.5 rounded-lg hover:bg-zinc-150 transition-colors cursor-pointer"
-              >
-                ✕
-              </button>
-            </div>
-
-            {/* Content Body */}
-            <div className="p-6 flex-1 overflow-y-auto space-y-6">
-              {/* Live Outstanding Balance Card */}
-              <div className="bg-[#fff8f5] border border-[#ffedd5] p-5 rounded-2xl space-y-1 shadow-xs">
-                <span className="text-[9px] font-bold text-[#ea580c] uppercase tracking-wider block">
-                  Current Outstanding Balance
+          <div className="flex flex-col gap-3.5 pt-2">
+            <Link href="/admin/students" className="w-full">
+              <button className="w-full text-left rounded-xl px-4 py-3.5 font-semibold transition-all hover:shadow-md border border-zinc-200 bg-white hover:bg-zinc-50 text-zinc-700 hover:-translate-y-0.5 flex items-center justify-between text-xs cursor-pointer">
+                <span className="flex items-center gap-3">
+                  <Users className="w-4 h-4 text-[#1572FE]" />
+                  <span>Student Directory & Demographic Exports</span>
                 </span>
-                <div className="text-2xl font-extrabold text-orange-950 font-mono">
-                  ₹{selectedPaymentStudent.financial_ledger?.current_outstanding_balance.toLocaleString("en-IN")}
-                </div>
-              </div>
+                <ChevronRight className="w-4 h-4 text-zinc-400" />
+              </button>
+            </Link>
 
-              {/* Input Fields */}
-              <div className="space-y-4">
-                <div className="space-y-1">
-                  <label className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 block">Amount Paid (₹)</label>
-                  <input
-                    type="text"
-                    placeholder="e.g. 15000"
-                    value={paymentAmount}
-                    onChange={(e) => {
-                      setPaymentAmount(e.target.value);
-                      setPaymentError(null);
-                    }}
-                    className="w-full input-premium bg-white border border-zinc-200 focus:border-[#ea580c] focus:ring-[#ea580c]/15 text-sm rounded-xl py-2 px-3 outline-none"
-                  />
-                </div>
+            <Link href="/admin/intake" className="w-full">
+              <button className="w-full text-left rounded-xl px-4 py-3.5 font-semibold transition-all hover:shadow-md border border-zinc-200 bg-white hover:bg-zinc-50 text-zinc-700 hover:-translate-y-0.5 flex items-center justify-between text-xs cursor-pointer">
+                <span className="flex items-center gap-3">
+                  <UserPlus className="w-4 h-4 text-blue-800" />
+                  <span>Ingest Student List (CSV/Excel Intake)</span>
+                </span>
+                <ChevronRight className="w-4 h-4 text-zinc-400" />
+              </button>
+            </Link>
 
-                <div className="space-y-1">
-                  <label className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 block">Payment Mode</label>
-                  <div className="grid grid-cols-3 gap-1.5 p-1 bg-zinc-100/80 rounded-xl border border-zinc-200">
-                    {(["cash", "upi", "bank_transfer"] as const).map((mode) => (
-                      <button
-                        key={mode}
-                        type="button"
-                        onClick={() => setPaymentMode(mode)}
-                        className={`py-1.5 text-[10px] font-bold rounded-lg capitalize transition-all cursor-pointer ${
-                          paymentMode === mode
-                            ? "bg-[#fff2eb] text-[#ea580c] border border-[#fed7aa] shadow-xs"
-                            : "bg-transparent text-zinc-400 hover:text-zinc-700 border border-transparent"
-                        }`}
-                      >
-                        {mode.replace("_", " ")}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="space-y-1">
-                  <label className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 block">Reference Number (Optional)</label>
-                  <input
-                    type="text"
-                    placeholder="e.g. TXN987293810, Cash receipt #5"
-                    value={referenceNumber}
-                    onChange={(e) => setReferenceNumber(e.target.value)}
-                    className="w-full input-premium bg-white border border-zinc-200 focus:border-[#ea580c] focus:ring-[#ea580c]/15 text-sm rounded-xl py-2 px-3 outline-none"
-                  />
-                </div>
-              </div>
-
-              {/* Error messages */}
-              {paymentError && (
-                <div className="bg-red-50 border border-red-100 text-[#b91c1c] p-3 rounded-xl text-xs font-semibold">
-                  {paymentError}
-                </div>
-              )}
-            </div>
-
-            {/* Footer buttons */}
-            <div className="p-6 border-t border-zinc-100 bg-white flex items-center justify-end gap-3 shrink-0">
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setSelectedPaymentStudent(null);
-                  setPaymentAmount("");
-                  setPaymentMode("cash");
-                  setReferenceNumber("");
-                  setPaymentError(null);
-                }}
-                className="border-zinc-200 text-zinc-500 hover:bg-zinc-50 font-semibold rounded-xl h-9"
-              >
-                Cancel
-              </Button>
-              <Button
-                onClick={handleRecordPaymentSubmit}
-                disabled={paymentSubmitting}
-                className="bg-[#ea580c] hover:bg-[#c2410c] text-white font-bold px-4 py-2 rounded-xl h-9 shadow-sm hover:shadow transition-all flex items-center justify-center gap-1.5 border border-[#ea580c]"
-              >
-                {paymentSubmitting ? (
-                  <>
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" /> Recording...
-                  </>
-                ) : (
-                  "Record Payment"
-                )}
-              </Button>
-            </div>
+            <Link href="/admin/finance" className="w-full">
+              <button className="w-full text-left rounded-xl px-4 py-3.5 font-semibold transition-all hover:shadow-md border border-zinc-200 bg-white hover:bg-zinc-50 text-zinc-700 hover:-translate-y-0.5 flex items-center justify-between text-xs cursor-pointer">
+                <span className="flex items-center gap-3">
+                  <Wallet className="w-4 h-4 text-orange-700" />
+                  <span>Edit Fees & Scholarships Adjustments</span>
+                </span>
+                <ChevronRight className="w-4 h-4 text-zinc-400" />
+              </button>
+            </Link>
           </div>
-        </div>
-      )}
+        </Card>
+
+        {/* RIGHT CARD: School Profile & Status summary */}
+        <Card className="card-premium bg-white border border-zinc-200/50 shadow-sm p-6 card-accent-indigo space-y-4">
+          <div>
+            <h3 className="text-base font-bold text-zinc-900">Academic Structure Status</h3>
+            <p className="text-xs text-zinc-455 mt-0.5">Overview of configured grades and operations.</p>
+          </div>
+          <div className="space-y-4 pt-2">
+            <div className="p-4 rounded-xl bg-zinc-50 border border-zinc-200/40 text-xs space-y-3">
+              <div className="flex justify-between items-center pb-2 border-b border-zinc-200/40">
+                <span className="text-zinc-500 font-medium">Institution Name</span>
+                <span className="font-bold text-zinc-800">{schoolName}</span>
+              </div>
+              <div className="flex justify-between items-center pb-2 border-b border-zinc-200/40">
+                <span className="text-zinc-500 font-medium">Classroom Structure</span>
+                <span className="font-bold text-zinc-800">{classCount !== null ? `${classCount} Classes` : "Loading..."}</span>
+              </div>
+              <div className="flex justify-between items-center pb-2 border-b border-zinc-200/40">
+                <span className="text-zinc-500 font-medium">Faculty Members</span>
+                <span className="font-bold text-zinc-800">{teacherCount !== null ? `${teacherCount} Teachers` : "Loading..."}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-zinc-500 font-medium">Student Body</span>
+                <span className="font-bold text-zinc-800">{loading ? "Loading..." : `${students.length} Enrolled`}</span>
+              </div>
+            </div>
+            <p className="text-[11px] text-zinc-400 leading-normal">
+              To update standard tuition fees, add new sections, or configure payment installments, please re-run setup onboarding operations or contact your administrator.
+            </p>
+          </div>
+        </Card>
+      </div>
     </div>
   );
 }

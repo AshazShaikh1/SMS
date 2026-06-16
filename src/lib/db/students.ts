@@ -5,22 +5,94 @@ import { calculateOutstandingBalance } from "./finance";
 /**
  * Fetch students, filtered optionally by grade level and section mapping.
  */
-export async function fetchStudents(grade?: string, section?: string): Promise<Student[]> {
+export async function fetchStudents(grade?: string, section?: string, includeDemographics: boolean = false): Promise<Student[]> {
   try {
     const schoolId = await getActiveUserSchoolId();
     if (!schoolId) return [];
 
-    let queryBuilder = supabase
-      .from("students")
-      .select(`
+    let selectQuery = "";
+    if (includeDemographics) {
+      selectQuery = `
         id,
         roll_number,
         fee_modifiers,
         parent_id,
         profile_id,
+        first_name,
+        surname,
+        register_no,
+        gender,
+        birth_date,
+        dob_in_words,
+        birth_place,
+        phones,
+        address,
+        country,
+        state,
+        dist,
+        taluka,
+        colony,
+        distance,
+        admit_in_class,
+        last_class,
+        last_school_attended,
+        admission_date,
+        father_name,
+        father_occupation,
+        father_qualification,
+        father_uid_no,
+        mother_name,
+        mother_occupation,
+        mother_qualification,
+        mother_uid_no,
+        mother_tongue,
+        guardian,
+        sibling,
+        single_parent,
+        orphan,
+        aadhar_number,
+        aapar_id,
+        pen_number,
+        saral_id,
+        nationality,
+        religion,
+        caste,
+        sub_caste,
+        progress,
+        conduct,
+        reason_for_leaving,
+        leaving_date,
+        remarks,
+        bloodgroup,
+        height,
+        weight,
+        handicap,
+        login_email,
+        muman,
+        qrcode,
+        rfid,
         profile:profiles!students_profile_id_fkey(full_name, email, outstanding_balance),
+        parent:profiles!students_parent_id_fkey(full_name, phone_number, email),
         class:classes!students_class_id_fkey(id, grade_level, section, base_fee_amount)
-      `)
+      `;
+    } else {
+      selectQuery = `
+        id,
+        roll_number,
+        fee_modifiers,
+        parent_id,
+        profile_id,
+        first_name,
+        surname,
+        profile:profiles!students_profile_id_fkey(full_name, email, outstanding_balance),
+        parent:profiles!students_parent_id_fkey(full_name, phone_number, email),
+        class:classes!students_class_id_fkey(id, grade_level, section, base_fee_amount)
+      `;
+    }
+
+    let queryBuilder = supabase
+      .from("students")
+      .select(selectQuery)
       .eq("school_id", schoolId);
 
     // Apply grade level filter
@@ -57,16 +129,70 @@ export async function fetchStudents(grade?: string, section?: string): Promise<S
       return {
         _id: row.id,
         personal_details: {
-          first_name,
-          last_name,
+          first_name: row.first_name || first_name,
+          last_name: row.surname || last_name,
           roll_number: row.roll_number,
           parent_id: row.parent_id || undefined,
           student_profile_id: row.profile_id,
+          parent_name: row.parent?.full_name || undefined,
+          parent_phone: row.parent?.phone_number || undefined,
+          // Demographic fields
+          register_no: row.register_no || undefined,
+          gender: row.gender || undefined,
+          birth_date: row.birth_date || undefined,
+          dob_in_words: row.dob_in_words || undefined,
+          birth_place: row.birth_place || undefined,
+          phones: row.phones || undefined,
+          address: row.address || undefined,
+          country: row.country || undefined,
+          state: row.state || undefined,
+          dist: row.dist || undefined,
+          taluka: row.taluka || undefined,
+          colony: row.colony || undefined,
+          distance: row.distance || undefined,
+          admit_in_class: row.admit_in_class || undefined,
+          last_class: row.last_class || undefined,
+          last_school_attended: row.last_school_attended || undefined,
+          admission_date: row.admission_date || undefined,
+          father_name: row.father_name || undefined,
+          father_occupation: row.father_occupation || undefined,
+          father_qualification: row.father_qualification || undefined,
+          father_uid_no: row.father_uid_no || undefined,
+          mother_name: row.mother_name || undefined,
+          mother_occupation: row.mother_occupation || undefined,
+          mother_qualification: row.mother_qualification || undefined,
+          mother_uid_no: row.mother_uid_no || undefined,
+          mother_tongue: row.mother_tongue || undefined,
+          guardian: row.guardian || undefined,
+          sibling: row.sibling || undefined,
+          single_parent: row.single_parent || false,
+          orphan: row.orphan || false,
+          aadhar_number: row.aadhar_number || undefined,
+          aapar_id: row.aapar_id || undefined,
+          pen_number: row.pen_number || undefined,
+          saral_id: row.saral_id || undefined,
+          nationality: row.nationality || undefined,
+          religion: row.religion || undefined,
+          caste: row.caste || undefined,
+          sub_caste: row.sub_caste || undefined,
+          progress: row.progress || undefined,
+          conduct: row.conduct || undefined,
+          reason_for_leaving: row.reason_for_leaving || undefined,
+          leaving_date: row.leaving_date || undefined,
+          remarks: row.remarks || undefined,
+          bloodgroup: row.bloodgroup || undefined,
+          height: row.height || undefined,
+          weight: row.weight || undefined,
+          handicap: row.handicap || false,
+          login_email: row.login_email || undefined,
+          muman: row.muman || undefined,
+          qrcode: row.qrcode || undefined,
+          rfid: row.rfid || undefined,
         },
         academic_mapping: {
           current_grade,
           section: sectionVal,
-          assigned_subjects: ["MATH_101", "SCI_202", "ENG_303"], // default suite
+          assigned_subjects: ["MATH_101", "SCI_202", "ENG_303"],
         },
         financial_ledger: {
           base_fee_package_id: `PKG_GRADE_${current_grade}`,
@@ -81,6 +207,13 @@ export async function fetchStudents(grade?: string, section?: string): Promise<S
     return [];
   }
 }
+function chunkArray<T>(array: T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let i = 0; i < array.length; i += size) {
+    chunks.push(array.slice(i, i + size));
+  }
+  return chunks;
+}
 
 /**
  * Bulk ingestion of student records via parsed CSV rows.
@@ -94,6 +227,62 @@ export async function importStudentsCSV(
     current_grade: string;
     section: string;
     parent_id?: string;
+    // Optional demographic columns
+    register_no?: string;
+    gender?: string;
+    birth_date?: string;
+    dob_in_words?: string;
+    birth_place?: string;
+    phones?: string;
+    address?: string;
+    country?: string;
+    state?: string;
+    dist?: string;
+    taluka?: string;
+    colony?: string;
+    distance?: string;
+    admit_in_class?: string;
+    last_class?: string;
+    last_school_attended?: string;
+    admission_date?: string;
+    father_name?: string;
+    father_occupation?: string;
+    father_qualification?: string;
+    father_uid_no?: string;
+    mother_name?: string;
+    mother_occupation?: string;
+    mother_qualification?: string;
+    mother_uid_no?: string;
+    mother_tongue?: string;
+    guardian?: string;
+    sibling?: string;
+    single_parent?: boolean;
+    orphan?: boolean;
+    aadhar_number?: string;
+    aapar_id?: string;
+    pen_number?: string;
+    saral_id?: string;
+    nationality?: string;
+    religion?: string;
+    caste?: string;
+    sub_caste?: string;
+    progress?: string;
+    conduct?: string;
+    reason_for_leaving?: string;
+    leaving_date?: string;
+    remarks?: string;
+    bloodgroup?: string;
+    height?: string;
+    weight?: string;
+    handicap?: boolean;
+    login_email?: string;
+    muman?: string;
+    qrcode?: string;
+    rfid?: string;
+    // Parent mappings
+    parent_name?: string;
+    parent_phone?: string;
+    student_email?: string;
   }[]
 ): Promise<{ success: boolean; count: number }> {
   try {
@@ -112,8 +301,9 @@ export async function importStudentsCSV(
     }
 
     const classesCache = [...(classesData || [])];
-
-    let successCount = 0;
+    const parentPhoneMap = new Map<string, string>();
+    const profilesToInsert: any[] = [];
+    const studentsToInsert: any[] = [];
 
     for (const row of rows) {
       const normalizedGrade = row.current_grade.replace("Grade ", "");
@@ -150,29 +340,38 @@ export async function importStudentsCSV(
 
       // Generate entity IDs
       const studentProfileId = crypto.randomUUID();
-      const parentProfileId = crypto.randomUUID();
       const studentId = crypto.randomUUID();
 
       const fullName = `${row.first_name} ${row.last_name}`.trim();
-      const studentEmail = `${row.first_name.toLowerCase()}.${row.last_name.toLowerCase()}.${Math.floor(100 + Math.random() * 900)}@school.edu`;
+      const studentEmail = row.student_email?.trim() || `${row.first_name.toLowerCase()}.${row.last_name.toLowerCase()}.${Math.floor(100 + Math.random() * 900)}@school.edu`;
       const parentEmail = `parent.${studentEmail}`;
 
-      // A. Create Parent Profile
-      const { error: pError } = await supabase.from("profiles").insert({
-        id: parentProfileId,
-        school_id: schoolId,
-        email: parentEmail,
-        full_name: `${fullName}'s Parent`,
-        role: "parent",
-      });
+      // Resolve parent profile ID (de-duplicated by parent name & phone)
+      const parentName = row.parent_name || `${fullName}'s Parent`;
+      const cleanPhone = (row.parent_phone || "").replace(/[\s\-\(\)]/g, "");
+      let resolvedParentId = "";
 
-      if (pError) {
-        console.error("Failed to insert parent profile:", pError);
-        continue;
+      if (cleanPhone && parentPhoneMap.has(cleanPhone)) {
+        resolvedParentId = parentPhoneMap.get(cleanPhone)!;
+      } else {
+        resolvedParentId = crypto.randomUUID();
+        if (cleanPhone) {
+          parentPhoneMap.set(cleanPhone, resolvedParentId);
+        }
+        
+        // Add Parent Profile to insert array
+        profilesToInsert.push({
+          id: resolvedParentId,
+          school_id: schoolId,
+          email: parentEmail,
+          full_name: parentName,
+          role: "parent",
+          phone_number: row.parent_phone || null
+        });
       }
 
-      // B. Create Student Profile
-      const { error: sProfileError } = await supabase.from("profiles").insert({
+      // Add Student Profile to insert array
+      profilesToInsert.push({
         id: studentProfileId,
         school_id: schoolId,
         email: studentEmail,
@@ -180,31 +379,92 @@ export async function importStudentsCSV(
         role: "student",
       });
 
-      if (sProfileError) {
-        console.error("Failed to insert student profile:", sProfileError);
-        continue;
-      }
-
-      // C. Create Student Linkage Record
-      const { error: sError } = await supabase.from("students").insert({
+      // Add Student Linkage Record with all demographics
+      studentsToInsert.push({
         id: studentId,
         school_id: schoolId,
         profile_id: studentProfileId,
-        parent_id: parentProfileId,
+        parent_id: resolvedParentId,
         class_id: classObj.id,
         roll_number: Number(row.roll_number) || Math.floor(1 + Math.random() * 50),
         fee_modifiers: [],
+        first_name: row.first_name || null,
+        surname: row.last_name || null,
+        register_no: row.register_no || null,
+        gender: row.gender || null,
+        birth_date: row.birth_date || null,
+        dob_in_words: row.dob_in_words || null,
+        birth_place: row.birth_place || null,
+        phones: row.phones || null,
+        address: row.address || null,
+        country: row.country || null,
+        state: row.state || null,
+        dist: row.dist || null,
+        taluka: row.taluka || null,
+        colony: row.colony || null,
+        distance: row.distance || null,
+        admit_in_class: row.admit_in_class || null,
+        last_class: row.last_class || null,
+        last_school_attended: row.last_school_attended || null,
+        admission_date: row.admission_date || null,
+        father_name: row.father_name || null,
+        father_occupation: row.father_occupation || null,
+        father_qualification: row.father_qualification || null,
+        father_uid_no: row.father_uid_no || null,
+        mother_name: row.mother_name || null,
+        mother_occupation: row.mother_occupation || null,
+        mother_qualification: row.mother_qualification || null,
+        mother_uid_no: row.mother_uid_no || null,
+        mother_tongue: row.mother_tongue || null,
+        guardian: row.guardian || null,
+        sibling: row.sibling || null,
+        single_parent: row.single_parent || false,
+        orphan: row.orphan || false,
+        aadhar_number: row.aadhar_number || null,
+        aapar_id: row.aapar_id || null,
+        pen_number: row.pen_number || null,
+        saral_id: row.saral_id || null,
+        nationality: row.nationality || null,
+        religion: row.religion || null,
+        caste: row.caste || null,
+        sub_caste: row.sub_caste || null,
+        progress: row.progress || null,
+        conduct: row.conduct || null,
+        reason_for_leaving: row.reason_for_leaving || null,
+        leaving_date: row.leaving_date || null,
+        remarks: row.remarks || null,
+        bloodgroup: row.bloodgroup || null,
+        height: row.height || null,
+        weight: row.weight || null,
+        handicap: row.handicap || false,
+        login_email: row.login_email || null,
+        muman: row.muman || null,
+        qrcode: row.qrcode || null,
+        rfid: row.rfid || null,
       });
-
-      if (sError) {
-        console.error("Failed to link student roster record:", sError);
-        continue;
-      }
-
-      successCount++;
     }
 
-    return { success: successCount > 0, count: successCount };
+    // Bulk write profiles in chunks of 100
+    const profileChunks = chunkArray(profilesToInsert, 100);
+    for (const chunk of profileChunks) {
+      const { error: pError } = await supabase.from("profiles").insert(chunk);
+      if (pError) {
+        console.error("Bulk profiles insert failed:", pError);
+        return { success: false, count: 0 };
+      }
+    }
+
+    // Bulk write student linkage records in chunks of 100
+    const studentChunks = chunkArray(studentsToInsert, 100);
+    for (const chunk of studentChunks) {
+      const { error: sError } = await supabase.from("students").insert(chunk);
+      if (sError) {
+        console.error("Bulk students insert failed:", sError);
+        return { success: false, count: 0 };
+      }
+    }
+
+    return { success: true, count: studentsToInsert.length };
   } catch (e) {
     console.error("Bulk CSV ingestion failed:", e);
     return { success: false, count: 0 };

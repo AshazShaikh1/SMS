@@ -1,0 +1,4 @@
+Student Name,Roll Number,Class,Parent Name,Parent Phone,Parent Email,Student Email,Aadhar Number,Gender,Date of Birth (YYYY-MM-DD),Blood Group,Address,Category/Caste,Admission Date (YYYY-MM-DD),Register No
+Aarav Sharma,1,Grade 10-A,Rajesh Sharma,9876543210,rajesh@mail.com,aarav@school.com,123456789012,Male,2010-05-12,O+,123 Park Street,General,2026-06-01,REG001
+Diya Patel,2,Grade 10-A,Meera Patel,9876543211,meera@mail.com,diya@school.com,234567890123,Female,2010-08-22,A+,456 Lake View,OBC,2026-06-01,REG002
+Sibling One Sharma,3,Grade 10-A,Rajesh Sharma,9876543210,rajesh@mail.com,sibling1@school.com,345678901234,Male,2011-11-05,B+,123 Park Street,General,2026-06-01,REG003
